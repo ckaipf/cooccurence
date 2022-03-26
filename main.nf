@@ -32,18 +32,14 @@ workflow pairedIntersections {
   assert acc.every {it == acc[0]} : "Run identifiers have to be equal for all entries in the config file"
   params.tag = acc.get(0)
 
-  
-  betool_parameters = parameters
-  max_distance = distances
-
 
   files.combine(files) | \
   filter(it -> it[0] != it[2]) | \
   map {it -> [it[0], it[2], it[1], it[3]]} |  \
-  join(betool_parameters, by: [0,1], remainder: true) |  \
+  join(parameters, by: [0,1], remainder: true) |  \
   map{it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it} | \
   closestBed | \
-  join(max_distance, by: [0,1], remainder: true) |  \
+  join(distances, by: [0,1], remainder: true) |  \
   map{it -> (it[3] == null) ? it[0..2] + params.default_distance : it} | \
   map{it -> ['"'+it[0]+'"', '"'+it[1]+'"', '"'+it[3]+'"', '"'+it[2]+'"']} | \
   toList | \
