@@ -7,7 +7,7 @@ params.files = [
 "3.gff"
 ]
 
-params.default_bedtools_parameters = ""
+params.default_bedtools_parameters = "-s -io"
 params.default_distance = 50
 params.config = "example.config"
 
@@ -20,8 +20,9 @@ workflow pairedIntersections {
   take: filePaths
         config        
   main:
-  files = Channel.fromPath( filePaths ) | \
-  map( it -> [it.getSimpleName(), it]) 
+  files = Channel.fromPath(filePaths) | \
+          sortGff | \
+          map { it -> [it.getSimpleName(), it] }
 
 
   parameters = Channel.fromPath(config).splitCsv().map { row -> [ "${row[1]}", "${row[2]}", "${row[3]}"] }
@@ -34,20 +35,30 @@ workflow pairedIntersections {
 
 
   files.combine(files) | \
-  filter(it -> it[0] != it[2]) | \
-  map {it -> [it[0], it[2], it[1], it[3]]} |  \
-  join(parameters, by: [0,1], remainder: true) |  \
-  map{it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it} | \
-  closestBed | \
-  join(distances, by: [0,1], remainder: true) |  \
-  map{it -> (it[3] == null) ? it[0..2] + params.default_distance : it} | \
-  map{it -> ['"'+it[0]+'"', '"'+it[1]+'"', '"'+it[3]+'"', '"'+it[2]+'"']} | \
-  toList | \
-  fullJoin | \
-  plotVenn
+    filter(it -> it[0] != it[2]) | \
+    map {it -> [it[0], it[2], it[1], it[3]]} |  \
+    join(parameters, by: [0,1], remainder: true) |  \
+    map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } | \
+    closestBed | \
+    join(distances, by: [0,1], remainder: true) |  \
+    map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
+    map { it -> ['"'+it[0]+'"', '"'+it[1]+'"', '"'+it[3]+'"', '"'+it[2]+'"'] } | \
+    toList | \
+    fullJoin | \
+    plotVenn
 }
 
 
+process sortGff {
+  input:
+  path(a)
+  output:
+  path("${a}.sorted")
+
+  """
+  sort -k1,1 -k4,4n -k5,5n ${a} > ${a}.sorted
+  """
+}
 
 process closestBed {
   input:
@@ -56,9 +67,7 @@ process closestBed {
   tuple val(i), val(j), path("*.closest")
 
 """
-sort -k4,4n ${a} > ${a}.sorted
-sort -k4,4n ${b} > ${b}.sorted
-bedtools closest -D a ${parameters} -a ${a}.sorted -b ${b}.sorted > ${i}${j}.closest
+bedtools closest -D a ${parameters} -a ${a} -b ${b} > ${i}${j}.closest
 """
 }
 
@@ -82,18 +91,16 @@ process fullJoin {
   library(tidyverse)
 
   x <- list(${input_list}) 
-  permutations <- map(x, ~ paste0(.[1],.[2])) %>% unlist
+  permutations <- map(x, ~ paste0(chuck(., 1), chuck(., 2))) %>% unlist
   sets <- map(x, ~ .[1]) %>% unlist(use.names = F) %>% unique
   names(x) <- permutations
   names(permutations) <- permutations
 
   pairs <- x %>%
   map(function(y) {
-    read_delim(file = y[[4]], delim = "\t", col_names = F, col_types = "ccccccccccccccccccc") %>%
-    mutate(id_a = paste0(y[[1]], X4, X5, X7)) %>%
-    mutate(id_b = paste0(y[[2]], X13, X14, X16)) %>%
-    rename_with(.fn = function(x) y[[1]], .cols =  c("id_a")) %>%
-    rename_with(.fn = function(x) y[[2]], .cols =  c("id_b")) %>%
+    read_delim(file = chuck(y, 4), delim = "\t", col_names = F, col_types = "ccccccccccccccccccc") %>%
+    mutate("{chuck(y, 1)}" := paste0(chuck(y, 1), X4, X5, X7)) %>%
+    mutate("{chuck(y, 2)}" := paste0(chuck(y, 2), X13, X14, X16)) %>%
     mutate(distance = abs(as.numeric(X19))) %>%
     select(!starts_with("X")) %>%
     distinct(across(everything()))
@@ -101,19 +108,19 @@ process fullJoin {
   )
 
   pairs_filtered <- 
-    map2(.x = pairs, .y = x, .f = ~ filter(.x, distance < as.numeric(.y[[3]]))) %>%
+    map2(.x = pairs, .y = x, .f = ~ filter(.x, distance < as.numeric(chuck(.y, 3)))) %>%
     map(~ select(., -distance))
 
   sets_total <- sets %>%
     map(~ permutations[str_starts(permutations, .)]) %>%
     map(~ first(.)) %>%
-    map(~ map(., .f = function(x) pairs[[x]])) %>% 
+    map(~ map(., .f = function(i) chuck(pairs, i))) %>% 
     flatten %>%
     map(~ .[1]) 
 
   joined_filtered <- sets %>%
     map(~ permutations[str_starts(permutations, .)]) %>%
-    map(~ map(., .f = function(x) pairs_filtered[[x]])) %>%
+    map(~ map(., .f = function(i) chuck(pairs_filtered, i))) %>%
     map(~ reduce(., function(acc, y) full_join(acc, y, na_matches = "na"))) %>%
     reduce(function(acc, y) full_join(acc, y, na_matches = "na"))
 
@@ -127,13 +134,10 @@ process fullJoin {
 
 process plotVenn{
   publishDir ".", mode: "copy"
-
   input:
   path Rdata
-  
   output:
   path "*.png"
-
 
   """
   #!/usr/bin/Rscript
