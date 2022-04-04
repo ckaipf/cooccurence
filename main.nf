@@ -11,6 +11,7 @@ params.default_bedtools_parameters = "-s -k 1"
 params.default_distance = 150
 params.config = "example.config"
 params.tag = "example_run_0"
+params.min_comb_freq = 0.05
 
 workflow {
   main:
@@ -50,7 +51,7 @@ workflow pairedIntersections {
     toList | \
     fullJoin 
     
-//    x | (plotVenn & barPlot) 
+    x | (plotVenn & barPlot) 
 }
 
 
@@ -162,5 +163,92 @@ process plotVenn{
   p <- ggVennDiagram::ggVennDiagram(ids)
   ggsave("${params.tag}_venn.png", plot = p, device = "png")
   save(venn_complete, sets, file = "${params.tag}.RData")
+  """
+}
+
+process barPlot {
+  publishDir ".", mode: "copy"
+  input:
+  path Rdata
+  output:
+  path "*.png"
+
+"""
+ #!/usr/bin/Rscript
+  library(tidyverse)
+  load("${Rdata}")
+
+map2(.x = sets, .y = sets, .f = function(x, y) {
+  seq(sets) %>%
+    map(
+      ~ {combn(sets, .) %>% t %>% data.frame() %>%filter(if_any(everything(), .fns = ~ . %in% c(x)))})%>%
+    map(.f = ~ pmap(., c)) %>% 
+    flatten %>% 
+    map(as.vector) %>%
+    set_names(map_chr(., .f = function(x) paste(x, collapse =  "_" ) %>% as.vector)) %>% 
+    map(~ filter(venn_complete, 
+                 if_all(all_of(.), .fns = ~ !is.na(.)) & if_all(sets[!sets %in% .], .fns = is.na)
+    )
+    ) %>%
+    map(~ distinct(., .data[[x]])) %>%
+    map(count) %>%
+    map(unlist) %>%
+    bind_cols() %>%
+  pivot_longer(cols = everything(), names_to = "combination") %>%
+  bind_cols(., set = y)
+}) %>%
+  bind_rows %>%
+  group_by(set) %>%
+  mutate(total = sum(value)) %>%
+  ungroup %>%  
+  group_by(set) %>% 
+  mutate(r = value / total) %>%
+  mutate(combination = if_else(set == combination, "disjoint", combination )) %>%
+  group_by(set) %>% 
+  ggplot(aes(
+    x = 1, 
+    y = r, 
+    fill = combination, 
+    group = combination)
+    ) +
+  geom_bar(stat = "identity", colour = "black", linetype = "dashed", alpha = .8, size = 0.1) +
+  geom_label(aes(y = r, 
+                label = if_else(r > ${params.min_comb_freq}, 
+                                  if_else(str_ends(combination, set), 
+                                    str_remove_all(combination, paste0("_", set)),
+                                    str_remove_all(combination, paste0(set, "_")),
+                                  ) %>% 
+                                  str_replace_all("_", "\n"), 
+                                as.character(NA)
+                                ), 
+                group = combination
+                ),
+            fontface = "bold",
+            color = "black", 
+            fill = "white", 
+            lineheight = .9,
+            alpha = .5, 
+            position = position_stack(vjust = .5), angle = 0, size = 3.5) + 
+  facet_grid(. ~ set) +
+  scale_fill_viridis_d(option = "B") +
+  scale_y_continuous(expand = c(0,0), name = "Percentage", breaks = c(0, 1), limits = c(0, 1), labels = c("0%", "100%")) +
+ guides(fill = guide_legend(title = "Combination", ncol = length(sets), byrow = T)) +
+  theme(
+    legend.position = "bottom",
+    panel.background = element_blank(),
+    
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    
+    legend.key.size = unit(4, "mm"),
+    legend.text = element_text(face = "bold"),
+
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold", size = 10),
+    axis.line.y = element_line()
+    ) -> p
+     
+ ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 8, height = 8)
   """
 }
