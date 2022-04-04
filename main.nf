@@ -153,6 +153,7 @@ process plotVenn{
   """
   #!/usr/bin/Rscript
   library(tidyverse)
+  library(ggVennDiagram)
   load("${Rdata}")
   
   names(sets) <- sets
@@ -160,7 +161,17 @@ process plotVenn{
     map(~ filter(venn_complete, !is.na(.data[[.]]))) %>%
     map(~ select(., rowid) %>% unlist %>% unique) 
 
-  p <- ggVennDiagram::ggVennDiagram(ids)
+  venn <- Venn(ids)
+data <- process_data(venn)
+region_data <- venn_region(data)
+ggplot() +
+  geom_sf(aes(fill = count), alpha = .7, data = venn_region(data), show.legend = F) +
+  geom_sf(size = 2, color = "grey", data = venn_setedge(data), show.legend = F) +
+  geom_sf_text(aes(label = name), data = venn_setlabel(data), fontface = "bold") +
+  geom_sf_label(aes(label=count), alpha = .7, fontface = "bold", data = venn_region(data)) +
+  scale_fill_viridis_c() + 
+  theme_void() -> p
+
   ggsave("${params.tag}_venn.png", plot = p, device = "png")
   save(venn_complete, sets, file = "${params.tag}.RData")
   """
