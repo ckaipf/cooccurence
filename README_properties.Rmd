@@ -71,7 +71,7 @@ bedtools closest -D a -k 2 -a B.bed -b A.bed
 A non-commutative parameter setting may lead to inconsistent results.
 In the second example, we used a not suitable parameter setting.
 The obtained set $A$ is then ambiguous:
-$a_{2}\rightarrow b_{2}$ and $a_{2}\rightarrow NA$. 
+$a_{2}\rightarrow b_{2}$ and $a_{2}\rightarrow \textrm{NA}$. 
 
 ```{r, echo=TRUE}
 AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
@@ -111,6 +111,7 @@ full_join(A, B)
 ```
 
 
+Non transitive join
 
 ```{r}
 AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))

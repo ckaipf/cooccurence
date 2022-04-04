@@ -69,7 +69,7 @@ or by enumerating the complete environment of a feature.
 A non-commutative parameter setting may lead to inconsistent results. In
 the second example, we used a not suitable parameter setting. The
 obtained set *A* is then ambiguous: *a*<sub>2</sub> → *b*<sub>2</sub>
-and *a*<sub>2</sub> → *N**A*.
+and *a*<sub>2</sub> → NA.
 
     AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
     BA <- data.frame(B = c("b1", "b2"), A = c("a1", "a2"))
@@ -138,6 +138,8 @@ is not true, multiple combinations are obtained in the union.
        A  B  C
     1 a1 b1 c1
     2 a2 b2 c2
+
+Non transitive join
 
     AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
     BA <- data.frame(B = c("b1", "b2"), A = c("a1", "a2"))
