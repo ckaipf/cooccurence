@@ -7,34 +7,38 @@ params.files = [
 "3.gff"
 ]
 
-params.default_bedtools_parameters = "-s -io"
-params.default_distance = 50
+params.default_bedtools_parameters = "-s -k 1"
+params.default_distance = 150
 params.config = "example.config"
+params.tag = "example_run_0"
 
 workflow {
   main:
-  pairedIntersections(params.files, params.config)
+  pairedIntersections(params.files, params.config,)
 }
 
 workflow pairedIntersections {
-  take: filePaths
-        config        
+  take: files
+        config
   main:
-  files = Channel.fromPath(filePaths) | \
+
+  files_ch = Channel.fromPath(files) | \
           sortGff | \
           map { it -> [it.getSimpleName(), it] }
 
+  config = Channel.fromPath(config) | \
+      splitCsv() | \
+      map { row -> (row[0] == params.tag) ? row : null } | \
+      map { row -> (files.contains(row[1] + ".gff") && files.contains(row[2] + ".gff")) ? row : null}    
 
-  parameters = Channel.fromPath(config).splitCsv().map { row -> [ "${row[1]}", "${row[2]}", "${row[3]}"] }
-  distances = Channel.fromPath(config).splitCsv().map { row -> [ "${row[1]}", "${row[2]}", "${row[4]}"] }
   
-  acc = []
-  new File(config).splitEachLine(",") {f -> acc += [f[0]]}
-  assert acc.every {it == acc[0]} : "Run identifiers have to be equal for all entries in the config file"
-  params.tag = acc.get(0)
+  parameters = config | \
+    map { it -> [ it[1], it[2], it[3] ] }
 
+  distances = config | \
+    map { it -> [ it[1], it[2], it[4] ] }
 
-  files.combine(files) | \
+  x  = files_ch.combine(files_ch) | \
     filter(it -> it[0] != it[2]) | \
     map {it -> [it[0], it[2], it[1], it[3]]} |  \
     join(parameters, by: [0,1], remainder: true) |  \
@@ -44,8 +48,9 @@ workflow pairedIntersections {
     map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
     map { it -> ['"'+it[0]+'"', '"'+it[1]+'"', '"'+it[3]+'"', '"'+it[2]+'"'] } | \
     toList | \
-    fullJoin | \
-    plotVenn
+    fullJoin 
+    
+//    x | (plotVenn & barPlot) 
 }
 
 
@@ -61,6 +66,7 @@ process sortGff {
 }
 
 process closestBed {
+//  publishDir ".", mode: "copy"
   input:
   tuple val(i), val(j), path(a), path(b), val(parameters)
   output:
@@ -90,6 +96,8 @@ process fullJoin {
   #!/usr/bin/Rscript
   library(tidyverse)
 
+  na_match = "na"
+
   x <- list(${input_list}) 
   permutations <- map(x, ~ paste0(chuck(., 1), chuck(., 2))) %>% unlist
   sets <- map(x, ~ .[1]) %>% unlist(use.names = F) %>% unique
@@ -118,14 +126,16 @@ process fullJoin {
     flatten %>%
     map(~ .[1]) 
 
-  joined_filtered <- sets %>%
+  sets_full <- sets %>%
     map(~ permutations[str_starts(permutations, .)]) %>%
     map(~ map(., .f = function(i) chuck(pairs_filtered, i))) %>%
-    map(~ reduce(., function(acc, y) full_join(acc, y, na_matches = "na"))) %>%
-    reduce(function(acc, y) full_join(acc, y, na_matches = "na"))
+    map(~ reduce(., function(acc, y) full_join(acc, y, na_matches = na_match))) 
+
+  joined_filtered <- sets_full %>%
+    reduce(function(acc, y) full_join(acc, y, na_matches = na_match))
 
   venn_complete <- sets_total %>%
-    reduce(.f = function(acc, y) full_join(acc, y, na_matches = "na"), .init = joined_filtered) %>%
+    reduce(.f = function(acc, y) full_join(acc, y, na_matches = na_match), .init = joined_filtered) %>%
     rowid_to_column()
     
   save(venn_complete, sets, file = "${params.tag}.RData")
@@ -141,7 +151,6 @@ process plotVenn{
 
   """
   #!/usr/bin/Rscript
-
   library(tidyverse)
   load("${Rdata}")
   
@@ -152,5 +161,6 @@ process plotVenn{
 
   p <- ggVennDiagram::ggVennDiagram(ids)
   ggsave("${params.tag}_venn.png", plot = p, device = "png")
+  save(venn_complete, sets, file = "${params.tag}.RData")
   """
 }
