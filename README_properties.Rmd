@@ -1,6 +1,6 @@
 ---
 title: 'Properties of applied functions'
-output: html_document
+output: md_document
 ---
 
 
