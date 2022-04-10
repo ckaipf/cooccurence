@@ -108,8 +108,8 @@ process fullJoin {
   pairs <- x %>%
   map(function(y) {
     read_delim(file = chuck(y, 4), delim = "\t", col_names = F, col_types = "ccccccccccccccccccc") %>%
-    mutate("{chuck(y, 1)}" := paste0(chuck(y, 1), X4, X5, X7)) %>%
-    mutate("{chuck(y, 2)}" := paste0(chuck(y, 2), X13, X14, X16)) %>%
+    mutate("{chuck(y, 1)}" := paste(chuck(y, 1), X4, X5, X7, sep = ".")) %>%
+    mutate("{chuck(y, 2)}" := paste(chuck(y, 2), X13, X14, X16, sep = ".")) %>%
     mutate(distance = abs(as.numeric(X19))) %>%
     select(!starts_with("X")) %>%
     distinct(across(everything()))
