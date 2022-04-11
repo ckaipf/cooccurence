@@ -21,6 +21,8 @@
 * `R >= 4.1.2`
 * `tidyverse >= 1.3.1`
 * `ggVennDiagram >= 1.3.1`
+* `python >= 3.7.3`
+
 
 ## How to
 
