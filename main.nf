@@ -2,9 +2,9 @@
 nextflow.enable.dsl = 2
 
 params.files = [
-"1.gff",
-"2.gff",
-"3.gff"
+"example/1.gff",
+"example/2.gff",
+"example/3.gff"
 ]
 
 params.default_bedtools_parameters = "-s -k 1"

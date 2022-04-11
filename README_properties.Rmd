@@ -21,10 +21,10 @@ Moreover, if the distribution of the combinations within a set is studied, it sh
 
 ## Laws to consider for bedtools closest
 ```{bash, echo=TRUE}
-cat A.bed
+cat example/A.bed
 ```
 ```{bash, echo=TRUE}
-cat B.bed
+cat example/B.bed
 ```
 
 ### Commutative property
@@ -32,104 +32,33 @@ cat B.bed
 The nearest neighbor function is not commutative for all parameter settings.
 
 ```{bash, echo=TRUE}
-bedtools closest -D a -a A.bed -b B.bed
+bedtools closest -D a -a example/A.bed -b example/B.bed
 ```
 
 
 ```{bash, echo=TRUE}
-bedtools closest -D a -a B.bed -b A.bed
+bedtools closest -D a -a example/B.bed -b example/A.bed
 ```
 
 Therefore it is necessary to consider the symmetry of the used parameters.
 For example by using `ignore overlap`, `ignore downstream` and `ignore upstream`,
 ```{bash, echo=TRUE}
-bedtools closest -D a -io -iu -a A.bed -b B.bed
+bedtools closest -D a -io -iu -a example/A.bed -b example/B.bed
 ```
 
 
 ```{bash, echo=TRUE}
-bedtools closest -D a -io -id -a B.bed -b A.bed
+bedtools closest -D a -io -id -a example/B.bed -b example/A.bed
 ```
 
 or by enumerating the complete environment of a feature.
 
 ```{bash, echo=TRUE}
-bedtools closest -D a -k 2 -a A.bed -b B.bed
+bedtools closest -D a -k 2 -a example/A.bed -b example/B.bed
 ```
 
 
 ```{bash, echo=TRUE}
-bedtools closest -D a -k 2 -a B.bed -b A.bed
-```
-
-
-
-## Properties and behaviour of dplyr::full_join
-
-### Commutative property
-
-A non-commutative parameter setting may lead to inconsistent results.
-In the second example, we used a not suitable parameter setting.
-The obtained set $A$ is then ambiguous:
-$a_{2}\rightarrow b_{2}$ and $a_{2}\rightarrow \textrm{NA}$. 
-
-```{r, echo=TRUE}
-AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
-BA <- data.frame(B = c("b1", "b2"), A = c("a1", "a2"))
-full_join(AB, BA)
-```
-
-```{r, echo=TRUE}
-AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
-BA <- data.frame(B = c("b1", NA), A = c("a1", "a2"))
-full_join(AB, BA)
-```
-
-
-## Transitive relation
-The same applies to transitivity: if ($a_{1}$, $b_{1}$) and ($b_{1}$, $c_{1}$) were determined as joint occurred, ($a_{1}$, $c_{1}$) should be implied. 
-If that is not true, multiple combinations are obtained in the union.
-
-```{r, echo=TRUE}
-AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
-BA <- data.frame(B = c("b1", "b2"), A = c("a1", "a2"))
-AC <- data.frame(A = c("a1", "a2"), C = c("c1", "c2"))
-CA <- data.frame(C = c("c1", "c2"), A = c("a1", "a2"))
-
-BC <- data.frame(B = c("b1", "b2"), C = c("c1", "c2"))
-CB <- data.frame(C = c("c1", "c2"), B = c("b1", "b2"))
-
-AB_ <- full_join(AB, BA)
-AC_ <- full_join(AC, CA)
-A <- full_join(AB_, AC_)
-
-BC_ <- full_join(BC, CB)
-BA_ <- full_join(BA, AB)
-B <- full_join(BA_, BC_)
-
-full_join(A, B)
-```
-
-
-Non transitive join
-
-```{r}
-AB <- data.frame(A = c("a1", "a2"), B = c("b1", "b2"))
-BA <- data.frame(B = c("b1", "b2"), A = c("a1", "a2"))
-AC <- data.frame(A = c("a1", "a2"), C = c("c1", NA))
-CA <- data.frame(C = c("c1", NA), A = c("a1", "a2"))
-
-BC <- data.frame(B = c("b1", "b2"), C = c("c1", "c2"))
-CB <- data.frame(C = c("c1", "c2"), B = c("b1", "b2"))
-
-AB_ <- full_join(AB, BA)
-AC_ <- full_join(AC, CA)
-A <- full_join(AB_, AC_)
-
-BC_ <- full_join(BC, CB)
-BA_ <- full_join(BA, AB)
-B <- full_join(BA_, BC_)
-
-full_join(A, B)
+bedtools closest -D a -k 2 -a example/B.bed -b example/A.bed
 ```
 

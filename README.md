@@ -7,7 +7,7 @@
     * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
 * Afterwards, the pairs (edges) are iteratively connected to complete graphs of size *n* (*K_n*), where *n* is the number of input sets (`gffs`)
    * A combinatorial table is returned with all groups
-   * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_1,b_2)},{(a_1,b_3,c_3)}}*
+   * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_2,b_2)},{(a_2,b_3,c_3)}}*
       * Elements from the original set may occur multiple times 
 * A use case is the analysis of the transcriptional structure
     * For example the joint occurrence of predicted promoters, annotated genes and terminators
@@ -39,7 +39,7 @@ nextflow main.nf
     * Only non-default lines have to be set in the config
     * Provide at least one entry in the config
     * Use the simplified file names (`myfile.gff -> myfile`) as identifiers for the combinatorial table
- * Symmetry is not validated, however only undirected edges can be build to $K_{2}$ graphs
+ * Symmetry is not validated, however only undirected edges can be build to *K_{2}* graphs
     * The *k* closest function is not commutative, therefore it is necessary to calculate all permutations
  * The visualization as Venn diagrams can be counterintuitive to interpret
     * The sets (the original and non-intersected) reflect single intervals, e.g. *A={a_1, ..., a_n}* and *B={b_1, ..., b_n}*
