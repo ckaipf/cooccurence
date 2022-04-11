@@ -8,7 +8,7 @@ params.files = [
 ]
 
 params.default_bedtools_parameters = "-s -k 1"
-params.default_distance = 150
+params.default_distance = 200
 params.config = "example.config"
 params.tag = "example_run_0"
 params.min_comb_freq = 0.05
@@ -39,19 +39,20 @@ workflow pairedIntersections {
   distances = config | \
     map { it -> [ it[1], it[2], it[4] ] }
 
-  x  = files_ch.combine(files_ch) | \
+  files_ch.combine(files_ch) | \
     filter(it -> it[0] != it[2]) | \
     map {it -> [it[0], it[2], it[1], it[3]]} |  \
     join(parameters, by: [0,1], remainder: true) |  \
     map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } | \
     closestBed | \
+    rearrange | \
     join(distances, by: [0,1], remainder: true) |  \
     map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
-    map { it -> ['"'+it[0]+'"', '"'+it[1]+'"', '"'+it[3]+'"', '"'+it[2]+'"'] } | \
+    map { it -> it.collect {x -> '"' + x +'"'}} | \
+    map { it -> [it[0], it[1], it[3], it[2]] }  | \
     toList | \
-    fullJoin 
-    
-    x | (plotVenn & barPlot) 
+    buildCompleteGraphs | \
+    (plotVenn & barPlot)
 }
 
 
@@ -67,7 +68,6 @@ process sortGff {
 }
 
 process closestBed {
-//  publishDir ".", mode: "copy"
   input:
   tuple val(i), val(j), path(a), path(b), val(parameters)
   output:
@@ -78,75 +78,163 @@ bedtools closest -D a ${parameters} -a ${a} -b ${b} > ${i}${j}.closest
 """
 }
 
-process fullJoin {
+process rearrange {
+  input:
+  tuple val(i), val(j), path(file)
+  output:
+  tuple val(i), val(j), path("*.csv")
+
+"""
+awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \$19}' ${file} > ${file}.csv
+"""
+}
+
+
+process buildCompleteGraphs {
   publishDir ".", mode: "copy"
   input:
-  val closestOutput
+  val file
   output:
-  path "*.RData"
-  
-  script:
-  //  Groovy list to R list string
-  input_list = closestOutput
-      .collect{f -> f.toString().replace("[", "c(").replace("]", ")")}
-      .toString()
-      .minus("[")
-      .minus("]")
+  path "*.csv"
 
   """
-  #!/usr/bin/Rscript
-  library(tidyverse)
+  #!/usr/bin/env python3
+import collections
+import os
+import csv
 
-  na_match = "na"
-
-  x <- list(${input_list}) 
-  permutations <- map(x, ~ paste0(chuck(., 1), chuck(., 2))) %>% unlist
-  sets <- map(x, ~ .[1]) %>% unlist(use.names = F) %>% unique
-  names(x) <- permutations
-  names(permutations) <- permutations
-
-  pairs <- x %>%
-  map(function(y) {
-    read_delim(file = chuck(y, 4), delim = "\t", col_names = F, col_types = "ccccccccccccccccccc") %>%
-    mutate("{chuck(y, 1)}" := paste0(chuck(y, 1), X4, X5, X7)) %>%
-    mutate("{chuck(y, 2)}" := paste0(chuck(y, 2), X13, X14, X16)) %>%
-    mutate(distance = abs(as.numeric(X19))) %>%
-    select(!starts_with("X")) %>%
-    distinct(across(everything()))
-    }
-  )
-
-  pairs_filtered <- 
-    map2(.x = pairs, .y = x, .f = ~ filter(.x, distance < as.numeric(chuck(.y, 3)))) %>%
-    map(~ select(., -distance))
-
-  sets_total <- sets %>%
-    map(~ permutations[str_starts(permutations, .)]) %>%
-    map(~ first(.)) %>%
-    map(~ map(., .f = function(i) chuck(pairs, i))) %>% 
-    flatten %>%
-    map(~ .[1]) 
-
-  sets_full <- sets %>%
-    map(~ permutations[str_starts(permutations, .)]) %>%
-    map(~ map(., .f = function(i) chuck(pairs_filtered, i))) %>%
-    map(~ reduce(., function(acc, y) full_join(acc, y, na_matches = na_match))) 
-
-  joined_filtered <- sets_full %>%
-    reduce(function(acc, y) full_join(acc, y, na_matches = na_match))
-
-  venn_complete <- sets_total %>%
-    reduce(.f = function(acc, y) full_join(acc, y, na_matches = na_match), .init = joined_filtered) %>%
-    rowid_to_column()
+# Disjoint-set data structure, without ranks
+# Group 2-tuples if they share a parent node
+# Partition of edges in connected components
+# Store additionally the tuples, needs further testing
+class DisjointSet:
+    def __init__(self):
+        self.parent_pointer = collections.defaultdict(lambda: None)
+        self.groups = collections.defaultdict(set)
+        self.tuples = collections.defaultdict(list)
+        self.group_tuples = collections.defaultdict(set)
     
-  save(venn_complete, sets, file = "${params.tag}.RData")
+    def find(self, x):
+        curr_parent = self.parent_pointer[x]
+        if curr_parent:
+            updated_parent = self.find(curr_parent)
+            self.parent_pointer[x] = updated_parent
+            return updated_parent
+        return x
+
+    def union(self, x, y):
+        parent_x, parent_y = self.find(x), self.find(y)
+        if parent_x != parent_y:
+            self.parent_pointer[parent_x] = parent_y
+            self.tuples[parent_y] = self.tuples[parent_x] + [(x,y)]
+        self.tuples[parent_y] = self.tuples[parent_x] + [(x,y)]            
+    
+    def group(self):
+        for x in self.parent_pointer:
+            self.groups[self.find(x)].add(x)
+            for z in self.tuples[self.find(x)]:
+                self.group_tuples[self.find(x)].add(z)
+
+
+#  Helper: O(n^2)
+#  Maybe replace by something more efficient
+def unique(list: list) -> list:
+    unique = []
+    for element in list:
+        if element in unique:
+            continue
+        else:
+            unique.append(element)
+    return unique
+
+
+
+# Fold: build complete graphs (k_n) from (k_n-1)
+#   For each k_n
+#    if exists v not in k_n: k_n U v = n and
+#    for all u in k_n exists (u,v) then k_n+1 exists
+def complete_graphs(edges: list) -> list:
+    # Init
+    vs = set([v for edge in edges for v in edge])
+    aj = [set((v,)) for v in vs]
+    def f(complete_graphs: list, edges: set, vs: list, n: int) -> list:
+      # Complete graph of max |V| vertices
+      if n == len(vs)+1: return complete_graphs
+      cs = complete_graphs.copy()
+      k_n_1 = list()
+      for v in vs:
+        for graph in complete_graphs:
+            # K_n graph has n vertices
+            if len(graph.union({v})) < n: continue
+            # For all u in graph, exists edges (u,v)
+            elif all(any((i,j) in edges for i,j in [(v,u),(u,v)]) for u in graph):
+                if graph in cs: cs.remove(graph)
+                graph.add(v)
+                k_n_1.append(graph)
+
+      return f(cs + k_n_1, edges, vs, n+1)
+    return unique(f(aj, edges, vs, 1))
+
+# Connect DisjointSet and complete graphs computations 
+def complete_graphs_in_components(edges: list) -> list:
+    disjoint_edges = DisjointSet()
+    # Build tree
+    for u,v in edges:
+        disjoint_edges.union(str(u), str(v))
+    # Build components
+    disjoint_edges.group()
+    components = list()
+    for v in disjoint_edges.group_tuples.values():
+        v.discard(None)
+        components.append(v)
+    return [complete_graphs(component) for component in components]
+
+def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
+    acc = []
+    col = {prefix: [] for prefix in prefixes}
+    for component in complete_graphs:
+        for graph in component:
+            for k in col.keys():
+                # Add exception here if > 1, there should not be graphs with edges from the same set
+                 l = [v for v in graph if v.startswith(k)]
+                 if l:
+                    col[k].append(l[0]) 
+                 else:
+                    col[k].append(None)
+    return col
+
+
+# IO
+ids = set()
+edges = set()
+for file in ${file}:
+  ids.add(file[1])
+  with open(file[3]) as f:
+      for line in f.readlines():
+          v,u,distance = line.strip().split(",")
+          if abs(int(distance)) < int(file[2]):
+            edges.add((v,u))
+
+# To return also k_0 graphs, loops are added
+# Should slow down the computation and should be replaced by something more efficient
+edges.update([(vertice,vertice) for edge in edges for vertice in edge])
+
+ids = list(ids)
+gs = complete_graphs_in_components(edges)
+cols = to_data_frame(gs, ids)
+
+with open("groups.csv", "w") as the_file:
+     wr = csv.writer(the_file)
+     wr.writerow(ids)
+     for x in zip(*[v for v in cols.values()]): 
+        wr.writerow(x)
   """
 }
 
 process plotVenn{
   publishDir ".", mode: "copy"
   input:
-  path Rdata
+  path csv
   output:
   path "*.png"
 
@@ -154,23 +242,28 @@ process plotVenn{
   #!/usr/bin/Rscript
   library(tidyverse)
   library(ggVennDiagram)
-  load("${Rdata}")
-  
+
+  venn_complete <- read_delim(file = "${csv}", delim = ",")  
+  sets <- colnames(venn_complete)
   names(sets) <- sets
+  names(venn_complete) <- sets
+  venn_complete <- venn_complete %>%
+    rowid_to_column()
+
   ids <- sets %>%
     map(~ filter(venn_complete, !is.na(.data[[.]]))) %>%
     map(~ select(., rowid) %>% unlist %>% unique) 
 
   venn <- Venn(ids)
-data <- process_data(venn)
-region_data <- venn_region(data)
-ggplot() +
-  geom_sf(aes(fill = count), alpha = .7, data = venn_region(data), show.legend = F) +
-  geom_sf(size = 2, color = "grey", data = venn_setedge(data), show.legend = F) +
-  geom_sf_text(aes(label = name), data = venn_setlabel(data), fontface = "bold") +
-  geom_sf_label(aes(label=count), alpha = .7, fontface = "bold", data = venn_region(data)) +
-  scale_fill_viridis_c() + 
-  theme_void() -> p
+  data <- process_data(venn)
+  region_data <- venn_region(data)
+  ggplot() +
+    geom_sf(aes(fill = count), alpha = .7, data = venn_region(data), show.legend = F) +
+    geom_sf(size = 2, color = "grey", data = venn_setedge(data), show.legend = F) +
+    geom_sf_text(aes(label = name), data = venn_setlabel(data), fontface = "bold") +
+    geom_sf_label(aes(label=count), alpha = .7, fontface = "bold", data = venn_region(data)) +
+    scale_fill_viridis_c() + 
+    theme_void() -> p
 
   ggsave("${params.tag}_venn.png", plot = p, device = "png")
   save(venn_complete, sets, file = "${params.tag}.RData")
@@ -180,14 +273,20 @@ ggplot() +
 process barPlot {
   publishDir ".", mode: "copy"
   input:
-  path Rdata
+  path csv
   output:
   path "*.png"
 
 """
  #!/usr/bin/Rscript
   library(tidyverse)
-  load("${Rdata}")
+
+  venn_complete <- read_delim(file = "${csv}", delim = ",")  
+  sets <- colnames(venn_complete)
+  names(sets) <- sets
+  names(venn_complete) <- sets
+  venn_complete <- venn_complete %>%
+    rowid_to_column()
 
 map2(.x = sets, .y = sets, .f = function(x, y) {
   seq(sets) %>%
