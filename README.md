@@ -5,9 +5,9 @@
 * Simple `nextflow` script to calculate the paired joint occurrences of `gff` files
 * Pairwise relations are determined by `bedtools closest`
     * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
-* Afterwards, the pairs (edges) are iteratively connected to complete graphs of size $n$ ($K_{n}$), where $n$ is the number of input sets (`gffs`)
+* Afterwards, the pairs (edges) are iteratively connected to complete graphs of size *n* (*K_n*), where *n* is the number of input sets (`gffs`)
    * A combinatorial table is returned with all groups
-   * Note that $A,B,C$ maps to the set $ABC={{(a_{1},a_{1})},{(a_{1},b_{2})},{(a_{1},b_{3},c_{3})}}$
+   * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_1,b_2)},{(a_1,b_3,c_3)}}*
       * Elements from the original set may occur multiple times 
 * A use case is the analysis of the transcriptional structure
     * For example the joint occurrence of predicted promoters, annotated genes and terminators
