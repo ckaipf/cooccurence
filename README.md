@@ -1,8 +1,8 @@
-# pairedIntersections
+# cooccurrence
 
 ## Features
 
-* Simple `nextflow` script to calculate the paired joint occurrences of `gff` files
+* `nextflow` pipeline to calculate the pairwise cooccurrence of `GFF` files
 * Pairwise relations are determined by `bedtools closest`
     * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
 * Afterwards, the pairs (edges) are iteratively connected to complete graphs (*K_n*) of size *n* , where *n* is the number of input sets (`gffs`)
@@ -32,11 +32,10 @@ Run the script:
 nextflow main.nf
 ```
 
-
 ## Notes
 
- * Files have to be in the `gff` format and are set in the script 
- * Parameters for `bedtools closest` and maximal distances are passed in a csv config file
+ * Files have to be in the `GFF` format and are set in the script 
+ * Parameters for `bedtools closest` and maximal distances are passed in a combinatorial table (`CSV` file)
     * Default parameters can be set within the script
     * Only non-default lines have to be set in the config
     * Provide at least one entry in the config
