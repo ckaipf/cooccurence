@@ -1,38 +1,46 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl = 2
 
+/*
 params.files = [
 "example/1.gff",
 "example/2.gff",
 "example/3.gff"
 ]
+*/
+
+params.files = [
+"example/genes.gff",
+"example/promoters.gff",
+"example/terminators.gff"
+]
 
 params.default_bedtools_parameters = "-s -k 1"
 params.default_distance = 50
 params.config = "example.config"
-params.tag = "example_run_0"
+params.tag = "example_run_RegulonDB"
 params.min_comb_freq = 0.05
+params.bedtools_global = "-k 10"
 
 workflow {
   main:
-  pairedIntersections(params.files, params.config,)
+  cooccurrence(params.files, params.config)
 }
 
-workflow pairedIntersections {
-  take: files
-        config
+workflow cooccurrence {
+  take: 
+    files
+    config
   main:
-
   files_ch = Channel.fromPath(files) | \
           sortGff | \
           map { it -> [it.getSimpleName(), it] }
-
+  
   config = Channel.fromPath(config) | \
       splitCsv() | \
       map { row -> (row[0] == params.tag) ? row : null } |  \
       map { row -> (files.any { it.contains(row[1] + ".gff")} && files.any { it.contains(row[2] + ".gff")}) ? row : null} 
 
-  
   parameters = config | \
     map { it -> [ it[1], it[2], it[3] ] }
 
@@ -43,7 +51,7 @@ workflow pairedIntersections {
     filter(it -> it[0] != it[2]) | \
     map {it -> [it[0], it[2], it[1], it[3]]} |  \
     join(parameters, by: [0,1], remainder: true) |  \
-    map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } | \
+    map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } |  \
     closestBed | \
     rearrange | \
     join(distances, by: [0,1], remainder: true) | \
@@ -51,9 +59,18 @@ workflow pairedIntersections {
     map { it -> it.collect {x -> '"' + x +'"'}} | \
     map { it -> [it[0], it[1], it[3], it[2]] }  | \
     toList | \
-    buildCompleteGraphs 
-    buildCompleteGraphs.out.csv | (plotVenn & barPlot)
+    buildCompleteGraphs
+
     buildCompleteGraphs.out.maintenance.view()
+    
+    emit: 
+      buildCompleteGraphs.out.csv
+}
+
+workflow plot {
+  main:
+    cooccurrence(params.files, params.config)
+    cooccurrence.out | (plotVenn & barPlot)
 }
 
 
@@ -75,7 +92,7 @@ process closestBed {
   tuple val(i), val(j), path("*.closest")
 
 """
-bedtools closest -D a ${parameters} -a ${a} -b ${b} > ${i}${j}.closest
+bedtools closest -D a ${parameters} ${params.bedtools_global} -a ${a} -b ${b} > ${i}${j}.closest
 """
 }
 
@@ -108,7 +125,6 @@ import csv
 # Disjoint-set data structure, without ranks
 # Group 2-tuples if they share a parent node
 # Partition of edges in connected components
-# Store additionally the tuples, needs further testing
 class DisjointSet:
     def __init__(self):
         self.parent_pointer = collections.defaultdict(lambda: None)
@@ -130,8 +146,6 @@ class DisjointSet:
     def group(self):
         for x in self.parent_pointer:
             self.groups[self.find(x)].add(x)
-
-
 
 # Fold: build complete graphs (k_n) from (k_n-1)
 #   For each k_n
