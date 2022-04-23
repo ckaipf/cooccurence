@@ -8,7 +8,7 @@ params.files = [
 ]
 
 params.default_bedtools_parameters = "-s -k 1"
-params.default_distance = 200
+params.default_distance = 50
 params.config = "example.config"
 params.tag = "example_run_0"
 params.min_comb_freq = 0.05
@@ -29,8 +29,8 @@ workflow pairedIntersections {
 
   config = Channel.fromPath(config) | \
       splitCsv() | \
-      map { row -> (row[0] == params.tag) ? row : null } //| \
-      //map { row -> (files.contains(row[1] + ".gff") && files.contains(row[2] + ".gff")) ? row : null}    
+      map { row -> (row[0] == params.tag) ? row : null } |  \
+      map { row -> (files.any { it.contains(row[1] + ".gff")} && files.any { it.contains(row[2] + ".gff")}) ? row : null} 
 
   
   parameters = config | \
@@ -46,7 +46,7 @@ workflow pairedIntersections {
     map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } | \
     closestBed | \
     rearrange | \
-    join(distances, by: [0,1], remainder: true) |  \
+    join(distances, by: [0,1], remainder: true) | \
     map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
     map { it -> it.collect {x -> '"' + x +'"'}} | \
     map { it -> [it[0], it[1], it[3], it[2]] }  | \
