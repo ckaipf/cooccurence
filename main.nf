@@ -29,8 +29,8 @@ workflow pairedIntersections {
 
   config = Channel.fromPath(config) | \
       splitCsv() | \
-      map { row -> (row[0] == params.tag) ? row : null } | \
-      map { row -> (files.contains(row[1] + ".gff") && files.contains(row[2] + ".gff")) ? row : null}    
+      map { row -> (row[0] == params.tag) ? row : null } //| \
+      //map { row -> (files.contains(row[1] + ".gff") && files.contains(row[2] + ".gff")) ? row : null}    
 
   
   parameters = config | \
@@ -51,8 +51,9 @@ workflow pairedIntersections {
     map { it -> it.collect {x -> '"' + x +'"'}} | \
     map { it -> [it[0], it[1], it[3], it[2]] }  | \
     toList | \
-    buildCompleteGraphs | \
-    (plotVenn & barPlot)
+    buildCompleteGraphs 
+    buildCompleteGraphs.out.csv | (plotVenn & barPlot)
+    buildCompleteGraphs.out.maintenance.view()
 }
 
 
@@ -95,7 +96,8 @@ process buildCompleteGraphs {
   input:
   val file
   output:
-  path "*.csv"
+  path "*.csv", emit: csv
+    stdout emit: maintenance
 
   """
   #!/usr/bin/env python3
@@ -111,8 +113,6 @@ class DisjointSet:
     def __init__(self):
         self.parent_pointer = collections.defaultdict(lambda: None)
         self.groups = collections.defaultdict(set)
-        self.tuples = collections.defaultdict(list)
-        self.group_tuples = collections.defaultdict(set)
     
     def find(self, x):
         curr_parent = self.parent_pointer[x]
@@ -126,26 +126,10 @@ class DisjointSet:
         parent_x, parent_y = self.find(x), self.find(y)
         if parent_x != parent_y:
             self.parent_pointer[parent_x] = parent_y
-            self.tuples[parent_y] = self.tuples[parent_x] + [(x,y)]
-        self.tuples[parent_y] = self.tuples[parent_x] + [(x,y)]            
     
     def group(self):
         for x in self.parent_pointer:
             self.groups[self.find(x)].add(x)
-            for z in self.tuples[self.find(x)]:
-                self.group_tuples[self.find(x)].add(z)
-
-
-#  Helper: O(n^2)
-#  Maybe replace by something more efficient
-def unique(list: list) -> list:
-    unique = []
-    for element in list:
-        if element in unique:
-            continue
-        else:
-            unique.append(element)
-    return unique
 
 
 
@@ -153,27 +137,27 @@ def unique(list: list) -> list:
 #   For each k_n
 #    if exists v not in k_n: k_n U v = n and
 #    for all u in k_n exists (u,v) then k_n+1 exists
-def complete_graphs(edges: list) -> list:
+def complete_graphs(vs: list, edges: set) -> set:
     # Init
-    vs = set([v for edge in edges for v in edge])
-    aj = [set((v,)) for v in vs]
-    def f(complete_graphs: list, edges: set, vs: list, n: int) -> list:
+    complete_graphs = set([frozenset([v]) for v in vs])
+    acc = set()
+    def f(complete_graphs: set, edges: set, vs: list, n: int, acc: list) -> set:
       # Complete graph of max |V| vertices
-      if n == len(vs)+1: return complete_graphs
-      cs = complete_graphs.copy()
-      k_n_1 = list()
+      if n == len(vs) + 1: 
+        return acc
+      k_n_1 = set()
       for v in vs:
         for graph in complete_graphs:
-            # K_n graph has n vertices
-            if len(graph.union({v})) < n: continue
-            # For all u in graph, exists edges (u,v)
-            elif all(any((i,j) in edges for i,j in [(v,u),(u,v)]) for u in graph):
-                if graph in cs: cs.remove(graph)
-                graph.add(v)
-                k_n_1.append(graph)
-
-      return f(cs + k_n_1, edges, vs, n+1)
-    return unique(f(aj, edges, vs, 1))
+            # K_n graph has n vertices  and for all u in graph, exists edges (u,v)
+            if len(graph.union({v})) == n and all(any((i,j) in edges for i,j in [(v,u),(u,v)]) for u in graph):
+                k_n_1.add(graph.union({v}))
+                if graph in acc:
+                  acc.remove(graph)
+                if {v} in acc:
+                  acc.remove({v})
+                acc.add(graph.union({v}))
+      return f(k_n_1, edges, vs, n+1, acc)
+    return f(complete_graphs, edges, vs, 1, acc)
 
 # Connect DisjointSet and complete graphs computations 
 def complete_graphs_in_components(edges: list) -> list:
@@ -184,10 +168,10 @@ def complete_graphs_in_components(edges: list) -> list:
     # Build components
     disjoint_edges.group()
     components = list()
-    for v in disjoint_edges.group_tuples.values():
+    for v in disjoint_edges.groups.values():
         v.discard(None)
         components.append(v)
-    return [complete_graphs(component) for component in components]
+    return [complete_graphs(component, edges) for component in components]
 
 def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
     acc = []
@@ -207,17 +191,20 @@ def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
 # IO
 ids = set()
 edges = set()
+vs = set()
 for file in ${file}:
   ids.add(file[1])
   with open(file[3]) as f:
       for line in f.readlines():
           v,u,distance = line.strip().split(",")
-          if abs(int(distance)) < int(file[2]):
+          vs.add(v)
+          vs.add(u)
+          if abs(int(distance)) < abs(int(file[2])):
             edges.add((v,u))
 
 # To return also k_0 graphs, loops are added
 # Should slow down the computation and should be replaced by something more efficient
-edges.update([(vertice,vertice) for edge in edges for vertice in edge])
+edges.update([(vertice,vertice) for vertice in vs])
 
 ids = list(ids)
 gs = complete_graphs_in_components(edges)
