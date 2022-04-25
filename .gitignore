@@ -1,3 +1,5 @@
 work/
 *.png
 *.RData
+*.csv
+*.nextflow*

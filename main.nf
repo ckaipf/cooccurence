@@ -20,7 +20,7 @@ params.default_distance = 50
 params.config = "example.config"
 params.tag = "example_run_RegulonDB"
 params.min_comb_freq = 0.05
-params.bedtools_global = "-k 10"
+params.k = 6
 
 workflow {
   main:
@@ -53,24 +53,55 @@ workflow cooccurrence {
     join(parameters, by: [0,1], remainder: true) |  \
     map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } |  \
     closestBed | \
-    rearrange | \
     join(distances, by: [0,1], remainder: true) | \
     map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
+    monitorParams
+
+    monitorParams.out.data | \
+    rearrange | \
     map { it -> it.collect {x -> '"' + x +'"'}} | \
     map { it -> [it[0], it[1], it[3], it[2]] }  | \
     toList | \
     buildCompleteGraphs
 
-    buildCompleteGraphs.out.maintenance.view()
     
+    monitorParams.out.warnings.toList().forEach { if(it) print it.trim() }
+    //buildCompleteGraphs.out.warnings.view()
+
     emit: 
-      buildCompleteGraphs.out.csv
+      csv = buildCompleteGraphs.out.csv
 }
 
 workflow plot {
   main:
     cooccurrence(params.files, params.config)
-    cooccurrence.out | (plotVenn & barPlot)
+    cooccurrence.out.csv | (plotVenn & barPlot)
+}
+
+/*
+    k is not large enough if
+      exists max(observed_distances) < parameter(distance)
+*/
+process monitorParams {
+  errorStrategy "ignore"
+  input:
+  tuple val(i), val(j), path(a), val(parameters)
+  output:
+  tuple val(i), val(j), path(a), val(parameters), emit: data
+  stdout emit: warnings
+  
+  """
+  sort -k1,1 -k4,4n -k5,5n -k7,7 ${a} | \
+  awk 'function abs(v) {return v < 0 ? -v : v}
+  { 
+    for(i=1;i<=NF-1;i++) printf \$i"\t"; print abs(\$19)
+  }' | \
+  bedtools groupby -g 1,4,5,7 -c 19 -o max,count | \
+  awk '{
+    if(\$5<${parameters} && \$6==${params.k})
+      {print "[Warning][monitorParams] Pairs may have been skipped for ${i} and ${j}. Consider to increase the parameter k.";exit 0}
+  }' 
+  """
 }
 
 
@@ -91,16 +122,17 @@ process closestBed {
   output:
   tuple val(i), val(j), path("*.closest")
 
+
 """
-bedtools closest -D a ${parameters} ${params.bedtools_global} -a ${a} -b ${b} > ${i}${j}.closest
+bedtools closest -D a ${parameters} -k ${params.k} -a ${a} -b ${b} > ${i}${j}.closest
 """
 }
 
 process rearrange {
   input:
-  tuple val(i), val(j), path(file)
+  tuple val(i), val(j), path(file), val(parameters)
   output:
-  tuple val(i), val(j), path("*.csv")
+  tuple val(i), val(j), path("*.csv"), val(parameters)
 
 """
 awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \$19}' ${file} > ${file}.csv
@@ -114,7 +146,7 @@ process buildCompleteGraphs {
   val file
   output:
   path "*.csv", emit: csv
-    stdout emit: maintenance
+    stdout emit: warnings
 
   """
   #!/usr/bin/env python3
