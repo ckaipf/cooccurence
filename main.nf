@@ -15,7 +15,8 @@ params.files = [
 "example/terminators.gff"
 ]
 
-params.default_bedtools_parameters = "-s -k 1"
+
+params.default_bedtools_parameters = "-s"
 params.default_distance = 50
 params.config = "example.config"
 params.tag = "example_run_RegulonDB"
@@ -66,7 +67,7 @@ workflow cooccurrence {
 
     
     monitorParams.out.warnings.toList().forEach { if(it) print it.trim() }
-    //buildCompleteGraphs.out.warnings.view()
+    buildCompleteGraphs.out.warnings.view()
 
     emit: 
       csv = buildCompleteGraphs.out.csv
@@ -150,9 +151,7 @@ process buildCompleteGraphs {
 
   """
   #!/usr/bin/env python3
-import collections
-import os
-import csv
+import collections, os, csv
 
 # Disjoint-set data structure, without ranks
 # Group 2-tuples if they share a parent node
@@ -183,27 +182,19 @@ class DisjointSet:
 #   For each k_n
 #    if exists v not in k_n: k_n U v = n and
 #    for all u in k_n exists (u,v) then k_n+1 exists
-def complete_graphs(vs: list, edges: set) -> set:
-    # Init
-    complete_graphs = set([frozenset([v]) for v in vs])
-    acc = set()
-    def f(complete_graphs: set, edges: set, vs: list, n: int, acc: list) -> set:
-      # Complete graph of max |V| vertices
+def complete_graphs(vs: list, es: set) -> set:
+    def build_kn(complete_graphs: set, n: int, acc: set) -> set:
       if n == len(vs) + 1: 
         return acc
-      k_n_1 = set()
+      ks_step = set()
       for v in vs:
         for graph in complete_graphs:
-            # K_n graph has n vertices  and for all u in graph, exists edges (u,v)
-            if len(graph.union({v})) == n and all(any((i,j) in edges for i,j in [(v,u),(u,v)]) for u in graph):
-                k_n_1.add(graph.union({v}))
-                if graph in acc:
-                  acc.remove(graph)
-                if {v} in acc:
-                  acc.remove({v})
-                acc.add(graph.union({v}))
-      return f(k_n_1, edges, vs, n+1, acc)
-    return f(complete_graphs, edges, vs, 1, acc)
+            if len(graph | {v}) == n and all((v,u) in es or (u,v) in es for u in graph):
+                ks_step |= {graph | {v}}
+                acc |= {graph | {v}}
+                acc -= {graph} - {frozenset({v})}
+      return build_kn(ks_step, n+1, acc)
+    return build_kn({frozenset([v]) for v in vs}, 1, set())
 
 # Connect DisjointSet and complete graphs computations 
 def complete_graphs_in_components(edges: list) -> list:
@@ -225,8 +216,8 @@ def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
     for component in complete_graphs:
         for graph in component:
             for k in col.keys():
-                # Add exception here if > 1, there should not be graphs with edges from the same set
                  l = [v for v in graph if v.startswith(k)]
+                 assert len(l) <= 1, "Multiple vertices shared the same prefix"
                  if l:
                     col[k].append(l[0]) 
                  else:
@@ -236,24 +227,23 @@ def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
 
 # IO
 ids = set()
-edges = set()
+es = set()
 vs = set()
 for file in ${file}:
   ids.add(file[1])
   with open(file[3]) as f:
       for line in f.readlines():
           v,u,distance = line.strip().split(",")
-          vs.add(v)
-          vs.add(u)
+          vs |= {v,u}
           if abs(int(distance)) < abs(int(file[2])):
-            edges.add((v,u))
+            es |= {(v,u)}
 
 # To return also k_0 graphs, loops are added
 # Should slow down the computation and should be replaced by something more efficient
-edges.update([(vertice,vertice) for vertice in vs])
+es.update([(vertice,vertice) for vertice in vs])
 
 ids = list(ids)
-gs = complete_graphs_in_components(edges)
+gs = complete_graphs_in_components(es)
 cols = to_data_frame(gs, ids)
 
 with open("groups.csv", "w") as the_file:
@@ -298,7 +288,7 @@ process plotVenn{
     scale_fill_viridis_c() + 
     theme_void() -> p
 
-  ggsave("${params.tag}_venn.png", plot = p, device = "png")
+  ggsave("${params.tag}_venn.png", plot = p, device = "png", width = 6, height = 6)
   save(venn_complete, sets, file = "${params.tag}.RData")
   """
 }
@@ -375,7 +365,7 @@ map2(.x = sets, .y = sets, .f = function(x, y) {
   facet_grid(. ~ set) +
   scale_fill_viridis_d(option = "B") +
   scale_y_continuous(expand = c(0,0), name = "Percentage", breaks = c(0, 1), limits = c(0, 1), labels = c("0%", "100%")) +
- guides(fill = guide_legend(title = "Combination", ncol = length(sets), byrow = T)) +
+ guides(fill = guide_legend(title = "Combination", nrow = length(sets), byrow = T)) +
   theme(
     legend.position = "bottom",
     panel.background = element_blank(),
@@ -392,6 +382,6 @@ map2(.x = sets, .y = sets, .f = function(x, y) {
     axis.line.y = element_line()
     ) -> p
      
- ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 8, height = 8)
+ ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 6, height = 6)
   """
 }
