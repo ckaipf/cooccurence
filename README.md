@@ -1,9 +1,5 @@
 # cooccurrence
 
-<p align="center">
-<img src="example_run_RegulonDB_barPlot.png" width="200" height="200">
-<img src="example_run_RegulonDB_venn.png" width="200" height="200">
-</p>
 
 ## Features
 
@@ -12,8 +8,6 @@
     * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
 * Afterwards, the pairs (edges) are iteratively connected to complete graphs (*K_n*) of size *n* , where *n* is the number of input sets (`GFFs`)
    * A combinatorial table is returned with all groups
-   * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_2,b_2)},{(a_2,b_3,c_3)}}*
-      * Elements from the original set may occur multiple times 
 * A use case is the analysis of the transcriptional structure
     * For example the joint occurrence of predicted promoters, annotated genes and terminators
 * Moreover, the intersections are plotted as a Venn diagram and bar plot
@@ -56,9 +50,17 @@ nextflow main.nf -entry plot
     * Use the simplified file names (`myfile.gff -> myfile`) as identifiers for the combinatorial table
  * Symmetry is not validated, however only undirected edges can be build to *K_{2}* graphs
     * The *k* closest function is not commutative, therefore it is necessary to calculate all permutations
- * The visualization as Venn diagrams can be counterintuitive to interpret
+  * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_2,b_2)},{(a_2,b_3,c_3)}}*
+      * Elements from the original set may occur multiple times 
     * The sets (the original and non-intersected) reflect single intervals, e.g. *A={a_1, ..., a_n}* and *B={b_1, ..., b_n}*
     * The *intersections* reflect paired joined occurrences of both sets: *intersect(A, B)= {(a_1, b_1), (b_1, a_1), (a_1, b_2)}*
     * The cardinality of the *intersected* sets consists of the original set, e.g. *|A|* and a *product* part of the joined features (*|joined(AxB)|*)
-
+* The script does not handle overlaps in detail 
 * Example data was taken from [*RegulonDB*](https://regulondb.ccg.unam.mx/menu/using_regulondb/terms_and_conditions/citing_conditions/index.jsp#) v 10.5 (Alberto Santos-Zavaleta *et al.* 2019)
+
+
+<p align="center">
+<img src="example_run_RegulonDB_barPlot.png" width="400" height="400">
+<img src="example_run_RegulonDB_venn.png"  width="400" height="400">
+<img src="example_run_RegulonDB_freq_of_orders.png">
+</p>

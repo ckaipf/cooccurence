@@ -17,11 +17,14 @@ params.files = [
 
 
 params.default_bedtools_parameters = "-s"
+params.bedtools_k = 6
+params.bedtools_global = ""
 params.default_distance = 50
+
 params.config = "example.config"
 params.tag = "example_run_RegulonDB"
 params.min_comb_freq = 0.05
-params.k = 6
+
 
 workflow {
   main:
@@ -70,13 +73,15 @@ workflow cooccurrence {
     buildCompleteGraphs.out.warnings.view()
 
     emit: 
-      csv = buildCompleteGraphs.out.csv
+      set_csv = buildCompleteGraphs.out.set_csv
+      order_csv = buildCompleteGraphs.out.order_csv
 }
 
 workflow plot {
   main:
     cooccurrence(params.files, params.config)
-    cooccurrence.out.csv | (plotVenn & barPlot)
+    cooccurrence.out.set_csv | (plotVenn & barPlot)
+    cooccurrence.out.order_csv | plotOrder
 }
 
 /*
@@ -99,7 +104,7 @@ process monitorParams {
   }' | \
   bedtools groupby -g 1,4,5,7 -c 19 -o max,count | \
   awk '{
-    if(\$5<${parameters} && \$6==${params.k})
+    if(\$5<${parameters} && \$6==${params.bedtools_k})
       {print "[Warning][monitorParams] Pairs may have been skipped for ${i} and ${j}. Consider to increase the parameter k.";exit 0}
   }' 
   """
@@ -125,7 +130,7 @@ process closestBed {
 
 
 """
-bedtools closest -D a ${parameters} -k ${params.k} -a ${a} -b ${b} > ${i}${j}.closest
+bedtools closest -D a ${parameters} -k ${params.bedtools_k}  ${params.bedtools_global} -a ${a} -b ${b} > ${i}${j}.closest
 """
 }
 
@@ -146,7 +151,8 @@ process buildCompleteGraphs {
   input:
   val file
   output:
-  path "*.csv", emit: csv
+  path "*_set.csv", emit: set_csv
+  path "*_order.csv", emit: order_csv
     stdout emit: warnings
 
   """
@@ -210,9 +216,8 @@ def complete_graphs_in_components(edges: list) -> list:
         components.append(v)
     return [complete_graphs(component, edges) for component in components]
 
-def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
-    acc = []
-    col = {prefix: [] for prefix in prefixes}
+def cols_by_set(complete_graphs: list, prefixes: list) -> dict:
+    acc, col = [], {prefix: [prefix] for prefix in prefixes}
     for component in complete_graphs:
         for graph in component:
             for k in col.keys():
@@ -224,16 +229,28 @@ def to_data_frame(complete_graphs: list, prefixes: list) -> dict:
                     col[k].append(None)
     return col
 
+def cols_by_order(complete_graphs: list, prefixes: list) -> dict:
+    n = len(prefixes)
+    acc, col = [], {i: [i] for i in range(0,n)}
+    for component in complete_graphs:
+        for graph in component:
+           l = [tuple(v.split("_")) for v in graph]
+           # Definition of ordering, (+) i < j if i.start < j.start, (-) i < j if i.stop*-1 < j.stop*-1 
+           l = sorted(l, key = lambda x: -1 * int(x[2]) if x[3] == "-" else int(x[1]))
+           for i in range(0, n):
+            try:
+              col[i].append("_".join((str(s) for s in l[i])))
+            except IndexError:
+              col[i].append(None) 
+    return col
 
 # IO
-ids = set()
-es = set()
-vs = set()
+ids, es, vs = set(), set(), set()
 for file in ${file}:
   ids.add(file[1])
   with open(file[3]) as f:
       for line in f.readlines():
-          v,u,distance = line.strip().split(",")
+          v, u, distance = line.strip().split(",")
           vs |= {v,u}
           if abs(int(distance)) < abs(int(file[2])):
             es |= {(v,u)}
@@ -241,16 +258,14 @@ for file in ${file}:
 # To return also k_0 graphs, loops are added
 # Should slow down the computation and should be replaced by something more efficient
 es.update([(vertice,vertice) for vertice in vs])
+ids, gs = list(ids), complete_graphs_in_components(es)
 
-ids = list(ids)
-gs = complete_graphs_in_components(es)
-cols = to_data_frame(gs, ids)
-
-with open("groups.csv", "w") as the_file:
+for f in [cols_by_set, cols_by_order]:
+   cols = f(gs, ids)
+   with open(".".join([f.__name__, "csv"]), "w") as the_file:
      wr = csv.writer(the_file)
-     wr.writerow(ids)
      for x in zip(*[v for v in cols.values()]): 
-        wr.writerow(x)
+        wr.writerow(x) 
   """
 }
 
@@ -384,4 +399,51 @@ map2(.x = sets, .y = sets, .f = function(x, y) {
      
  ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 6, height = 6)
   """
+}
+
+process plotOrder {
+  publishDir ".", mode: "copy"
+  input:
+  path csv
+  output:
+  path "*.png"
+ 
+  """
+   #!/usr/bin/Rscript
+    library(tidyverse)
+
+read_delim(file = "${csv}", delim = ",") %>%
+  mutate(across(everything(), .fns = ~ str_split(., "_", simplify = T)[, 1])) %>%
+  group_by(across(everything())) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  mutate(f  = n / sum(n)) %>%
+  arrange(n) %>%
+  rowid_to_column() %>%
+  pivot_longer(cols = !starts_with(c("n", "rowid", "f")), names_to = "x") %>%
+  filter(!is.na(value)) %>% 
+  mutate(max_y = max(rowid),
+         max_x = max(as.numeric(x))) %>%
+  { max_y <<- unlist(distinct(select(., max_y))); .} %>%
+  ggplot(aes(x = as.numeric(x), y = rowid, group = rowid, label = value)) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  scale_x_continuous(expand = c(0.5, 0)) +
+  annotate("rect", xmin=-0.7, xmax=-0.3, ymin=0, ymax=max_y+1, alpha=0.8, fill="lightblue", col = "darkblue") +
+  geom_point(aes(x = -0.5, col = f), size = 5) +
+  scale_color_viridis_c(name = "Frequency") + 
+  geom_text(hjust=.5, vjust=-1) +
+  theme(
+    panel.background = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    legend.background = element_rect(fill="lightblue",
+                                     size=0.5, 
+                                     linetype="solid", 
+                                     colour ="darkblue"),
+    legend.position = "left"
+  ) -> p 
+ggsave(plot = p, filename = "${params.tag}_freq_of_orders.png", device = "png", width = 10)
+"""
 }
