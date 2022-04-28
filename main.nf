@@ -63,9 +63,8 @@ workflow cooccurrence {
 
     monitorParams.out.data | \
     rearrange | \
-    map { it -> it.collect {x -> '"' + x +'"'}} | \
-    map { it -> [it[0], it[1], it[3], it[2]] }  | \
-    toList | \
+    catFiles | \
+    collectFile(name: "collected_file.txt")  | \
     buildCompleteGraphs
 
     
@@ -110,6 +109,16 @@ process monitorParams {
   """
 }
 
+process catFiles {
+ // publishDir ".", mode: "copy"
+  input:
+  tuple val(i), val(j), path(csv), val(parameters)
+  output:
+  path "*.ext"
+ """
+ awk 'BEGIN{OFS=","}{print "${i}","${j}","${parameters}",\$0}' ${csv} > ${csv}.ext
+ """
+}
 
 process sortGff {
   input:
@@ -149,7 +158,7 @@ awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \
 process buildCompleteGraphs {
   publishDir ".", mode: "copy"
   input:
-  val file
+  path csv
   output:
   path "*_set.csv", emit: set_csv
   path "*_order.csv", emit: order_csv
@@ -246,14 +255,15 @@ def cols_by_order(complete_graphs: list, prefixes: list) -> dict:
 
 # IO
 ids, es, vs = set(), set(), set()
-for file in ${file}:
-  ids.add(file[1])
-  with open(file[3]) as f:
-      for line in f.readlines():
-          v, u, distance = line.strip().split(",")
-          vs |= {v,u}
-          if abs(int(distance)) < abs(int(file[2])):
-            es |= {(v,u)}
+with open('${csv}', newline='') as csvfile:
+  spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+  for row in spamreader:
+    i,j,max_distance,v,u,distance = row
+    vs |= {v,u}
+    vs |= {v,u}
+    ids |= {i,j} # Replace
+    if abs(int(distance)) < abs(int(max_distance)):
+      es |= {(v,u)}
 
 # To return also k_0 graphs, loops are added
 # Should slow down the computation and should be replaced by something more efficient
