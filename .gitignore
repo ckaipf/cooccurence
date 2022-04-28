@@ -3,3 +3,5 @@ work/
 *.RData
 *.csv
 *.nextflow*
+*.gz
+*.html
