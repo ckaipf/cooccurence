@@ -114,9 +114,11 @@ process catFiles {
   input:
   tuple val(i), val(j), path(csv), val(parameters)
   output:
-  path "*.ext"
+  path "*.gz"
  """
- awk 'BEGIN{OFS=","}{print "${i}","${j}","${parameters}",\$0}' ${csv} > ${csv}.ext
+ awk 'BEGIN{OFS=","}{print "${i}","${j}","${parameters}",\$0}' ${csv} | \
+ gzip \
+ > ${csv}.gz
  """
 }
 
@@ -160,13 +162,13 @@ process buildCompleteGraphs {
   input:
   path csv
   output:
-  path "*_set.csv", emit: set_csv
-  path "*_order.csv", emit: order_csv
+  path "*_set.csv.gz", emit: set_csv
+  path "*_order.csv.gz", emit: order_csv
     stdout emit: warnings
 
   """
   #!/usr/bin/env python3
-import collections, os, csv
+import collections, os, csv, gzip
 
 # Disjoint-set data structure, without ranks
 # Group 2-tuples if they share a parent node
@@ -255,9 +257,9 @@ def cols_by_order(complete_graphs: list, prefixes: list) -> dict:
 
 # IO
 ids, es, vs = set(), set(), set()
-with open('${csv}', newline='') as csvfile:
-  spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
-  for row in spamreader:
+with gzip.open('${csv}', mode='rt') as csvfile:
+  rows = csv.reader(csvfile, delimiter=',', quotechar='|')
+  for row in rows:
     i,j,max_distance,v,u,distance = row
     vs |= {v,u}
     vs |= {v,u}
@@ -272,8 +274,8 @@ ids, gs = list(ids), complete_graphs_in_components(es)
 
 for f in [cols_by_set, cols_by_order]:
    cols = f(gs, ids)
-   with open(".".join([f.__name__, "csv"]), "w") as the_file:
-     wr = csv.writer(the_file)
+   with gzip.open(".".join([f.__name__, "csv", "gz"]), "wt") as out:
+     wr = csv.writer(out)
      for x in zip(*[v for v in cols.values()]): 
         wr.writerow(x) 
   """
