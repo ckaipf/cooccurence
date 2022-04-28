@@ -16,7 +16,7 @@ params.files = [
 ]
 
 
-params.default_bedtools_parameters = "-s"
+params.bedtools_default_parameters = "-s"
 params.bedtools_k = 6
 params.bedtools_global = ""
 params.default_distance = 50
@@ -55,7 +55,7 @@ workflow cooccurrence {
     filter(it -> it[0] != it[2]) | \
     map {it -> [it[0], it[2], it[1], it[3]]} |  \
     join(parameters, by: [0,1], remainder: true) |  \
-    map { it -> (it[4] == null) ? it[0..3] + params.default_bedtools_parameters : it } |  \
+    map { it -> (it[4] == null) ? it[0..3] + params.bedtools_default_parameters : it } |  \
     closestBed | \
     join(distances, by: [0,1], remainder: true) | \
     map { it -> (it[3] == null) ? it[0..2] + params.default_distance : it } | \
