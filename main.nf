@@ -1,18 +1,12 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl = 2
 
-/*
-params.files = [
-"example/1.gff",
-"example/2.gff",
-"example/3.gff"
-]
-*/
 
+params.dir = "example"
 params.files = [
-"example/genes.gff",
-"example/promoters.gff",
-"example/terminators.gff"
+  params.dir + "/genes.gff",
+  params.dir + "/promoters.gff",
+  params.dir + "/terminators.gff"
 ]
 
 
@@ -21,7 +15,7 @@ params.bedtools_k = 6
 params.bedtools_global = ""
 params.default_distance = 50
 
-params.config = "example.config"
+params.config = params.dir + "/example.config"
 params.tag = "example_run_RegulonDB"
 params.min_comb_freq = 0.05
 
@@ -36,6 +30,8 @@ workflow cooccurrence {
     files
     config
   main:
+  mkdirTag()
+
   files_ch = Channel.fromPath(files) | \
           sortGff | \
           map { it -> [it.getSimpleName(), it] }
@@ -122,6 +118,12 @@ process catFiles {
  """
 }
 
+process mkdirTag {
+ """
+ mkdir ${params.tag}
+ """
+}
+
 process sortGff {
   input:
   path(a)
@@ -158,7 +160,7 @@ awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \
 
 
 process buildCompleteGraphs {
-  publishDir ".", mode: "copy"
+  publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
   output:
@@ -282,7 +284,7 @@ for f in [cols_by_set, cols_by_order]:
 }
 
 process plotVenn{
-  publishDir ".", mode: "copy"
+  publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
   output:
@@ -316,12 +318,11 @@ process plotVenn{
     theme_void() -> p
 
   ggsave("${params.tag}_venn.png", plot = p, device = "png", width = 6, height = 6)
-  save(venn_complete, sets, file = "${params.tag}.RData")
   """
 }
 
 process barPlot {
-  publishDir ".", mode: "copy"
+  publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
   output:
@@ -408,13 +409,13 @@ map2(.x = sets, .y = sets, .f = function(x, y) {
     strip.text.x = element_text(face = "bold", size = 10),
     axis.line.y = element_line()
     ) -> p
-     
+
  ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 6, height = 6)
   """
 }
 
 process plotOrder {
-  publishDir ".", mode: "copy"
+  publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
   output:
