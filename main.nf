@@ -197,7 +197,7 @@ class DisjointSet:
         for x in self.parent_pointer:
             self.groups[self.find(x)].add(x)
 
-# Fold: build complete graphs (k_n) from (k_n-1)
+# Fold: build k_n+1 from k_n
 #   For each k_n
 #    if exists v not in k_n: k_n U v = n and
 #    for all u in k_n exists (u,v) then k_n+1 exists
@@ -264,12 +264,11 @@ with gzip.open('${csv}', mode='rt') as csvfile:
   for row in rows:
     i,j,max_distance,v,u,distance = row
     vs |= {v,u}
-    vs |= {v,u}
-    ids |= {i,j} # Replace
+    ids |= {i,j}
     if abs(int(distance)) < abs(int(max_distance)):
       es |= {(v,u)}
 
-# To return also k_0 graphs, loops are added
+# To return also k_1 graphs, loops are added
 # Should slow down the computation and should be replaced by something more efficient
 es.update([(vertice,vertice) for vertice in vs])
 ids, gs = list(ids), complete_graphs_in_components(es)
