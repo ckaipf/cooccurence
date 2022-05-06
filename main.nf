@@ -12,10 +12,10 @@ params.files = [
 params.bedtools_default_parameters = "-s"
 params.bedtools_k = 10
 params.bedtools_global = ""
-params.default_distance = 10
+params.default_distance = 100
 
 params.config = params.dir + "/example.config"
-params.tag = "example_run_RegulonDB_A"
+params.tag = "example_run_RegulonDB"
 params.min_comb_freq = 0.2
 
 
