@@ -63,4 +63,5 @@ nextflow main.nf -entry plot
 <img src="example/example_run_RegulonDB/example_run_RegulonDB_barPlot.png" width="400" height="400">
 <img src="example/example_run_RegulonDB/example_run_RegulonDB_venn.png"  width="400" height="400">
 <img src="example/example_run_RegulonDB/example_run_RegulonDB_freq_of_orders.png">
+<img src="example/collected_barplot.png">
 </p>

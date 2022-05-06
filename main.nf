@@ -9,15 +9,14 @@ params.files = [
   params.dir + "/terminators.gff"
 ]
 
-
 params.bedtools_default_parameters = "-s"
-params.bedtools_k = 6
+params.bedtools_k = 10
 params.bedtools_global = ""
-params.default_distance = 50
+params.default_distance = 10
 
 params.config = params.dir + "/example.config"
-params.tag = "example_run_RegulonDB"
-params.min_comb_freq = 0.05
+params.tag = "example_run_RegulonDB_A"
+params.min_comb_freq = 0.2
 
 
 workflow {
@@ -267,7 +266,7 @@ ids, gs = list(ids), complete_graphs_in_components(es)
 
 for f in [cols_by_set, cols_by_order]:
    cols = f(gs, ids)
-   with gzip.open(".".join([f.__name__, "csv", "gz"]), "wt") as out:
+   with gzip.open(".".join(["${params.tag}", f.__name__, "csv", "gz"]), "wt") as out:
      wr = csv.writer(out)
      for x in zip(*[cols[k] for k in sorted(cols.keys())]): 
         wr.writerow(x) 
@@ -458,7 +457,8 @@ workflow collectRuns {
   Channel.fromPath( params.dir + "/**_set.csv.gz") | view | \
     zcatFilesAppendFileName | \
     collect | \
-    appendFiles
+    appendFiles | \
+    collectedBarPlot
 }
 
 process zcatFilesAppendFileName {
@@ -469,7 +469,7 @@ process zcatFilesAppendFileName {
   path "*t.csv"
  """
  zcat ${f} | \
- awk -F ',' -v OFS=',' '{if(NR==1) {print "file",\$0} else {print "${f.simpleName}",\$0}}' \
+ awk -F ',' -v OFS=',' '{if(NR==1) {print "tag",\$0} else {print "${f.simpleName}",\$0}}' \
  > ${f.simpleName}.t.csv
  """
 }
@@ -484,4 +484,92 @@ process appendFiles {
  head -1 ${f[0]} > collected.csv
  tail -q -n +2 ${f} >> collected.csv
  """
+}
+
+process collectedBarPlot {
+  publishDir "${params.dir}/", mode: "copy"
+  input:
+  path csv
+  output:
+  path "*.png"
+
+  """
+  #!/usr/bin/Rscript
+  library(tidyverse)
+
+  venn_complete <- read_delim("${csv}", delim = ",")  
+  sets <- colnames(venn_complete)[colnames(venn_complete) != "tag"]
+  names(sets) <- sets
+  venn_complete <- venn_complete %>%
+    rowid_to_column()
+
+split(venn_complete, venn_complete[["tag"]]) %>%
+  map2(.x = ., .y = names(.), function(dat, tag) {
+  map2(.x = sets, .y = sets, .f = function(x, y) {
+    seq(sets) %>%
+      # Get all combinations, count their observations and return as dataframe
+      map(~ {combn(sets, .) %>% t %>% data.frame() %>%filter(if_any(everything(), .fns = ~ . %in% c(x)))})%>%
+      map(.f = ~ pmap(., c)) %>% 
+      flatten %>% 
+      map(as.vector) %>%
+      set_names(map_chr(., .f = function(x) as.vector(paste(x, collapse =  "_" )))) %>% 
+      map(~ filter(dat, if_all(all_of(.), .fns = ~ !is.na(.)) & if_all(sets[!sets %in% .], .fns = is.na))) %>%
+      map(~ distinct(., .data[[x]])) %>%
+      map(count) %>%
+      map(unlist) %>%
+      bind_cols() %>%
+      pivot_longer(cols = everything(), names_to = "combination") %>%
+      bind_cols(., set = y) %>%
+      mutate(tag = tag)
+  }) 
+}) %>%
+  map(bind_rows) %>%
+  bind_rows %>%
+  group_by(set, tag) %>%
+  mutate(total = sum(value)) %>%
+  mutate(r = value / total) %>%
+  mutate(combination = if_else(set == combination, "disjoint", combination )) %>%
+    ggplot(aes(
+    x = tag, 
+    y = r, 
+    fill = combination, 
+    group = combination)
+  ) +
+  geom_bar(width=1, stat = "identity", colour = "black", linetype = "dashed", alpha = .8, size = 0.1) +
+  geom_label(aes(y = r, 
+                 label = if_else(r > ${params.min_comb_freq}, 
+                                 if_else(str_ends(combination, set), 
+                                         str_remove_all(combination, paste0("_", set)),
+                                         str_remove_all(combination, paste0(set, "_")),
+                                 ) %>% 
+                                   str_replace_all("_", "\n"), 
+                                 as.character(NA)
+                 ), 
+                 group = combination
+  ),
+  fontface = "bold",
+  color = "black", 
+  fill = "white", 
+  lineheight = .9,
+  alpha = .5, 
+  position = position_stack(vjust = .5), angle = 0, size = 3.5) + 
+  facet_grid(set ~ .) +
+  scale_fill_viridis_d(option = "D") +
+  scale_y_continuous(expand = c(0,0), name = "Percentage", breaks = c(0, 1), limits = c(0, 1), labels = c("0%", "100%")) +
+  guides(fill = guide_legend(title = "Combination", nrow = length(sets), byrow = T)) +
+  theme(
+    legend.position = "bottom",
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.line.y.left = element_blank(),
+    legend.key.size = unit(4, "mm"),
+    legend.text = element_text(face = "bold"),
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold", size = 10),
+    axis.line.y = element_line()
+  ) -> p
+  ggsave(plot = p, filename = "collected_barplot.png", device = "png", width = 10)
+  """
 }
