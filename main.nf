@@ -451,3 +451,37 @@ read_delim(file = "${csv}", delim = ",") %>%
 ggsave(plot = p, filename = "${params.tag}_freq_of_orders.png", device = "png", width = 10)
 """
 }
+
+
+workflow collectRuns {
+  main:
+  Channel.fromPath( params.dir + "/**_set.csv.gz") | view | \
+    zcatFilesAppendFileName | \
+    collect | \
+    appendFiles
+}
+
+process zcatFilesAppendFileName {
+//  publishDir "${params.dir}", mode: "copy"
+  input:
+  path f
+  output:
+  path "*t.csv"
+ """
+ zcat ${f} | \
+ awk -F ',' -v OFS=',' '{if(NR==1) {print "file",\$0} else {print "${f.simpleName}",\$0}}' \
+ > ${f.simpleName}.t.csv
+ """
+}
+
+process appendFiles {
+  publishDir "${params.dir}", mode: "copy"
+  input:
+  path f
+  output:
+  path "collected.csv"
+ """
+ head -1 ${f[0]} > collected.csv
+ tail -q -n +2 ${f} >> collected.csv
+ """
+}
