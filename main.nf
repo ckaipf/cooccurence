@@ -30,8 +30,6 @@ workflow cooccurrence {
     files
     config
   main:
-  mkdirTag()
-
   files_ch = Channel.fromPath(files) | \
           sortGff | \
           map { it -> [it.getSimpleName(), it] }
@@ -115,12 +113,6 @@ process catFiles {
  awk 'BEGIN{OFS=","}{print "${i}","${j}","${parameters}",\$0}' ${csv} | \
  gzip \
  > ${csv}.gz
- """
-}
-
-process mkdirTag {
- """
- mkdir ${params.tag}
  """
 }
 
