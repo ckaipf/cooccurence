@@ -269,7 +269,7 @@ for f in [cols_by_set, cols_by_order]:
    cols = f(gs, ids)
    with gzip.open(".".join([f.__name__, "csv", "gz"]), "wt") as out:
      wr = csv.writer(out)
-     for x in zip(*[v for v in cols.values()]): 
+     for x in zip(*[cols[k] for k in sorted(cols.keys())]): 
         wr.writerow(x) 
   """
 }
