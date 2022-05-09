@@ -497,16 +497,10 @@ process collectedBarPlot {
   #!/usr/bin/Rscript
   library(tidyverse)
 
-  venn_complete <- read_delim("${csv}", delim = ",")  
-  sets <- colnames(venn_complete)[colnames(venn_complete) != "tag"]
-  names(sets) <- sets
-  venn_complete <- venn_complete %>%
-    rowid_to_column()
-
-venn_complete %>%
+  read_delim("${csv}", delim = ",")  %>%
   distinct(across(everything())) %>%
-  mutate(across(!starts_with(c("tag", "rowid")), .fns = function(x) str_split(x, "_", simplify = T)[,1])) %>%
-  group_by(across(!starts_with(c("rowid")))) %>%
+  mutate(across(!starts_with(c("tag")), .fns = function(x) str_split(x, "_", simplify = T)[,1])) %>%
+  group_by(across(everything())) %>%
   summarise(n = n()) %>%
   unite(remove = F, !starts_with(c("tag", "n")), col = "combination", sep = "_") %>%
   mutate(combination = str_remove_all(combination, "NA_|_NA")) %>% 
@@ -545,7 +539,7 @@ venn_complete %>%
   scale_fill_viridis_d(option = "D") +
   scale_x_discrete(name = NULL, position = "top") +
   scale_y_continuous(name = NULL, labels = NULL, breaks = NULL, limits = c(0, 1)) +
-  guides(fill = guide_legend(title = "Combination", nrow = length(sets), byrow = T)) +
+  guides(fill = guide_legend(title = "Combination", nrow = 3, byrow = T)) +
   theme(
     legend.position = "bottom",
     legend.background = element_rect(colour = "navy", fill = "lightskyblue"),
