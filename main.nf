@@ -60,8 +60,7 @@ workflow cooccurrence {
     collectFile(name: "collected_file.txt")  | \
     buildCompleteGraphs
 
-    
-    monitorParams.out.warnings.toList().forEach { if(it) print it.trim() }
+    monitorParams.out.warnings.toList().forEach { if(it) log.warn(it.trim()) }
     buildCompleteGraphs.out.warnings.view()
 
     emit: 
@@ -97,7 +96,7 @@ process monitorParams {
   bedtools groupby -g 1,4,5,7 -c 19 -o max,count | \
   awk '{
     if(\$5<${parameters} && \$6==${params.bedtools_k})
-      {print "[Warning][monitorParams] Pairs may have been skipped for ${i} and ${j}. Consider to increase the parameter k.";exit 0}
+      {print "Pairs may have been skipped for \\033[4m${i}\\033[24m and \\033[4m${j}\\033[24m. Consider to increase parameter k.";exit 0}
   }' 
   """
 }
