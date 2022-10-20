@@ -80,6 +80,7 @@ workflow plot {
       exists max(observed_distances) < parameter(distance)
 */
 process monitorParams {
+  container "biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1"    
   errorStrategy "ignore"
   input:
   tuple val(i), val(j), path(a), val(parameters)
@@ -102,6 +103,7 @@ process monitorParams {
 }
 
 process catFiles {
+  container "${ 'debian:stable' }"
  // publishDir ".", mode: "copy"
   input:
   tuple val(i), val(j), path(csv), val(parameters)
@@ -115,6 +117,8 @@ process catFiles {
 }
 
 process sortGff {
+  container "ubuntu:latest"
+
   input:
   path(a)
   output:
@@ -126,6 +130,7 @@ process sortGff {
 }
 
 process closestBed {
+  container "biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1"
   input:
   tuple val(i), val(j), path(a), path(b), val(parameters)
   output:
@@ -138,6 +143,7 @@ bedtools closest -D a ${parameters} -k ${params.bedtools_k}  ${params.bedtools_g
 }
 
 process rearrange {
+  container "${ 'debian:stable-slim' }"
   input:
   tuple val(i), val(j), path(file), val(parameters)
   output:
@@ -150,6 +156,7 @@ awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \
 
 
 process buildCompleteGraphs {
+  container "${ 'python:slim' }"
   publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
