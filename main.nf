@@ -1,28 +1,17 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl = 2
 
-
-params.dir = "example"
-params.files = [
-  params.dir + "/genes.gff",
-  params.dir + "/promoters.gff",
-  params.dir + "/terminators.gff"
-]
-
-params.bedtools_default_parameters = "-s"
-params.bedtools_k = 10
-params.bedtools_global = ""
-params.default_distance = 1000
-
-params.config = params.dir + "/example.config"
-params.tag = "example_run_RegulonDB_C"
-params.min_comb_freq = 0.2
-
-
 workflow {
   main:
   cooccurrence(params.files, params.config)
 }
+
+workflow plot {
+  main:
+    cooccurrence(params.files, params.config)
+    cooccurrence.out.order_csv | plotOrder
+}
+
 
 workflow cooccurrence {
   take: 
@@ -68,11 +57,13 @@ workflow cooccurrence {
       order_csv = buildCompleteGraphs.out.order_csv
 }
 
-workflow plot {
+workflow collectRuns {
   main:
-    cooccurrence(params.files, params.config)
-    cooccurrence.out.set_csv | (plotVenn & barPlot)
-    cooccurrence.out.order_csv | plotOrder
+  Channel.fromPath( params.dir + "/**_set.csv.gz") | \
+    zcatFilesAppendFileName | \
+    collect | \
+    appendFiles | \
+    collectedBarPlot
 }
 
 /*
@@ -80,6 +71,7 @@ workflow plot {
       exists max(observed_distances) < parameter(distance)
 */
 process monitorParams {
+  container 'biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1'
   errorStrategy "ignore"
   input:
   tuple val(i), val(j), path(a), val(parameters)
@@ -102,6 +94,7 @@ process monitorParams {
 }
 
 process catFiles {
+  container 'debian:stable'
  // publishDir ".", mode: "copy"
   input:
   tuple val(i), val(j), path(csv), val(parameters)
@@ -115,6 +108,8 @@ process catFiles {
 }
 
 process sortGff {
+  container 'debian:stable'
+
   input:
   path(a)
   output:
@@ -126,18 +121,19 @@ process sortGff {
 }
 
 process closestBed {
+  container 'biocontainers/bedtools:v2.27.1dfsg-4-deb_cv1'
   input:
   tuple val(i), val(j), path(a), path(b), val(parameters)
   output:
   tuple val(i), val(j), path("*.closest")
 
-
-"""
-bedtools closest -D a ${parameters} -k ${params.bedtools_k}  ${params.bedtools_global} -a ${a} -b ${b} > ${i}${j}.closest
-"""
+  """
+  bedtools closest -D a ${parameters} -k ${params.bedtools_k}  ${params.bedtools_global} -a ${a} -b ${b} > ${i}${j}.closest
+  """
 }
 
 process rearrange {
+  container 'debian:stable-slim'
   input:
   tuple val(i), val(j), path(file), val(parameters)
   output:
@@ -150,6 +146,7 @@ awk  'BEGIN{OFS=","} {print "${i}_"\$4"_"\$5"_"\$7, "${j}_"\$13"_"\$14"_"\$16, \
 
 
 process buildCompleteGraphs {
+  container 'python:slim'
   publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
@@ -158,252 +155,14 @@ process buildCompleteGraphs {
   path "*_order.csv.gz", emit: order_csv
     stdout emit: warnings
 
+  script:
   """
-  #!/usr/bin/env python3
-import collections, os, csv, gzip
-
-# Disjoint-set data structure, without ranks
-# Group 2-tuples if they share a parent node
-# Partition of edges in connected components
-class DisjointSet:
-    def __init__(self):
-        self.parent_pointer = collections.defaultdict(lambda: None)
-        self.groups = collections.defaultdict(set)
-    
-    def find(self, x):
-        curr_parent = self.parent_pointer[x]
-        if curr_parent:
-            updated_parent = self.find(curr_parent)
-            self.parent_pointer[x] = updated_parent
-            return updated_parent
-        return x
-
-    def union(self, x, y):
-        parent_x, parent_y = self.find(x), self.find(y)
-        if parent_x != parent_y:
-            self.parent_pointer[parent_x] = parent_y
-    
-    def group(self):
-        for x in self.parent_pointer:
-            self.groups[self.find(x)].add(x)
-
-# Fold: build k_n+1 from k_n
-#   For each k_n
-#    if exists v not in k_n: k_n U v = n and
-#    for all u in k_n exists (u,v) then k_n+1 exists
-def complete_graphs(vs: list, es: set) -> set:
-    def build_kn(complete_graphs: set, n: int, acc: set) -> set:
-      if n == len(vs) + 1: 
-        return acc
-      ks_step = set()
-      for v in vs:
-        for graph in complete_graphs:
-            if len(graph | {v}) == n and all((v,u) in es or (u,v) in es for u in graph):
-                ks_step |= {graph | {v}}
-                acc |= {graph | {v}}
-                acc -= {graph} - {frozenset({v})}
-      return build_kn(ks_step, n+1, acc)
-    return build_kn({frozenset([v]) for v in vs}, 1, set())
-
-# Connect DisjointSet and complete graphs computations 
-def complete_graphs_in_components(edges: list) -> list:
-    disjoint_edges = DisjointSet()
-    # Build tree
-    for u,v in edges:
-        disjoint_edges.union(str(u), str(v))
-    # Build components
-    disjoint_edges.group()
-    components = list()
-    for v in disjoint_edges.groups.values():
-        v.discard(None)
-        components.append(v)
-    return [complete_graphs(component, edges) for component in components]
-
-def cols_by_set(complete_graphs: list, prefixes: list) -> dict:
-    acc, col = [], {prefix: [prefix] for prefix in prefixes}
-    for component in complete_graphs:
-        for graph in component:
-            for k in col.keys():
-                 l = [v for v in graph if v.startswith(k)]
-                 assert len(l) <= 1, "Multiple vertices shared the same prefix"
-                 if l:
-                    col[k].append(l[0]) 
-                 else:
-                    col[k].append(None)
-    return col
-
-def cols_by_order(complete_graphs: list, prefixes: list) -> dict:
-    n = len(prefixes)
-    acc, col = [], {i: [i] for i in range(0,n)}
-    for component in complete_graphs:
-        for graph in component:
-           l = [tuple(v.split("_")) for v in graph]
-           # Definition of ordering, (+) i < j if i.start < j.start, (-) i < j if i.stop*-1 < j.stop*-1 
-           l = sorted(l, key = lambda x: -1 * int(x[2]) if x[3] == "-" else int(x[1]))
-           for i in range(0, n):
-            try:
-              col[i].append("_".join((str(s) for s in l[i])))
-            except IndexError:
-              col[i].append(None) 
-    return col
-
-# IO
-ids, es, vs = set(), set(), set()
-with gzip.open('${csv}', mode='rt') as csvfile:
-  rows = csv.reader(csvfile, delimiter=',', quotechar='|')
-  for row in rows:
-    i,j,max_distance,v,u,distance = row
-    vs |= {v,u}
-    ids |= {i,j}
-    if abs(int(distance)) < abs(int(max_distance)):
-      es |= {(v,u)}
-
-# To return also k_1 graphs, loops are added
-# Should slow down the computation and should be replaced by something more efficient
-es.update([(vertice,vertice) for vertice in vs])
-ids, gs = list(ids), complete_graphs_in_components(es)
-
-for f in [cols_by_set, cols_by_order]:
-   cols = f(gs, ids)
-   with gzip.open(".".join(["${params.tag}", f.__name__, "csv", "gz"]), "wt") as out:
-     wr = csv.writer(out)
-     for x in zip(*[cols[k] for k in sorted(cols.keys())]): 
-        wr.writerow(x) 
-  """
-}
-
-process plotVenn{
-  publishDir "${params.dir}/${params.tag}", mode: "copy"
-  input:
-  path csv
-  output:
-  path "*.png"
-
-  """
-  #!/usr/bin/Rscript
-  library(tidyverse)
-  library(ggVennDiagram)
-
-  venn_complete <- read_delim(file = "${csv}", delim = ",")  
-  sets <- colnames(venn_complete)
-  names(sets) <- sets
-  names(venn_complete) <- sets
-  venn_complete <- venn_complete %>%
-    rowid_to_column()
-
-  ids <- sets %>%
-    map(~ filter(venn_complete, !is.na(.data[[.]]))) %>%
-    map(~ select(., rowid) %>% unlist %>% unique) 
-
-  venn <- Venn(ids)
-  data <- process_data(venn)
-  region_data <- venn_region(data)
-  ggplot() +
-    geom_sf(aes(fill = count), alpha = .7, data = venn_region(data), show.legend = F) +
-    geom_sf(size = 2, color = "grey", data = venn_setedge(data), show.legend = F) +
-    geom_sf_text(aes(label = name), data = venn_setlabel(data), fontface = "bold") +
-    geom_sf_label(aes(label=count), alpha = .7, fontface = "bold", data = venn_region(data)) +
-    scale_fill_viridis_c() + 
-    theme_void() -> p
-
-  ggsave("${params.tag}_venn.png", plot = p, device = "png", width = 6, height = 6)
-  """
-}
-
-process barPlot {
-  publishDir "${params.dir}/${params.tag}", mode: "copy"
-  input:
-  path csv
-  output:
-  path "*.png"
-
-"""
- #!/usr/bin/Rscript
-  library(tidyverse)
-
-  venn_complete <- read_delim(file = "${csv}", delim = ",")  
-  sets <- colnames(venn_complete)
-  names(sets) <- sets
-  names(venn_complete) <- sets
-  venn_complete <- venn_complete %>%
-    rowid_to_column()
-
-map2(.x = sets, .y = sets, .f = function(x, y) {
-  seq(sets) %>%
-    map(
-      ~ {combn(sets, .) %>% t %>% data.frame() %>%filter(if_any(everything(), .fns = ~ . %in% c(x)))})%>%
-    map(.f = ~ pmap(., c)) %>% 
-    flatten %>% 
-    map(as.vector) %>%
-    set_names(map_chr(., .f = function(x) paste(x, collapse =  "_" ) %>% as.vector)) %>% 
-    map(~ filter(venn_complete, 
-                 if_all(all_of(.), .fns = ~ !is.na(.)) & if_all(sets[!sets %in% .], .fns = is.na)
-    )
-    ) %>%
-    map(~ distinct(., .data[[x]])) %>%
-    map(count) %>%
-    map(unlist) %>%
-    bind_cols() %>%
-  pivot_longer(cols = everything(), names_to = "combination") %>%
-  bind_cols(., set = y)
-}) %>%
-  bind_rows %>%
-  group_by(set) %>%
-  mutate(total = sum(value)) %>%
-  ungroup %>%  
-  group_by(set) %>% 
-  mutate(r = value / total) %>%
-  mutate(combination = if_else(set == combination, "disjoint", combination )) %>%
-  group_by(set) %>% 
-  ggplot(aes(
-    x = 1, 
-    y = r, 
-    fill = combination, 
-    group = combination)
-    ) +
-  geom_bar(stat = "identity", colour = "black", linetype = "dashed", alpha = .8, size = 0.1) +
-  geom_label(aes(y = r, 
-                label = if_else(r > ${params.min_comb_freq}, 
-                                  if_else(str_ends(combination, set), 
-                                    str_remove_all(combination, paste0("_", set)),
-                                    str_remove_all(combination, paste0(set, "_")),
-                                  ) %>% 
-                                  str_replace_all("_", "\n"), 
-                                as.character(NA)
-                                ), 
-                group = combination
-                ),
-            fontface = "bold",
-            color = "black", 
-            fill = "white", 
-            lineheight = .9,
-            alpha = .5, 
-            position = position_stack(vjust = .5), angle = 0, size = 3.5) + 
-  facet_grid(. ~ set) +
-  scale_fill_viridis_d(option = "B") +
-  scale_y_continuous(expand = c(0,0), name = "Percentage", breaks = c(0, 1), limits = c(0, 1), labels = c("0%", "100%")) +
- guides(fill = guide_legend(title = "Combination", nrow = length(sets), byrow = T)) +
-  theme(
-    legend.position = "bottom",
-    panel.background = element_blank(),
-    
-    axis.ticks.x = element_blank(),
-    axis.text.x = element_blank(),
-    axis.title.x = element_blank(),
-    
-    legend.key.size = unit(4, "mm"),
-    legend.text = element_text(face = "bold"),
-
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold", size = 10),
-    axis.line.y = element_line()
-    ) -> p
-
- ggsave("${params.tag}_barPlot.png", plot = p, device = "png", width = 6, height = 6)
+  build_complete_graphs.py ${csv} ${params.tag}
   """
 }
 
 process plotOrder {
+  container 'rocker/tidyverse:latest'
   publishDir "${params.dir}/${params.tag}", mode: "copy"
   input:
   path csv
@@ -411,53 +170,8 @@ process plotOrder {
   path "*.png"
  
   """
-   #!/usr/bin/Rscript
-    library(tidyverse)
-
-read_delim(file = "${csv}", delim = ",") %>%
-  mutate(across(everything(), .fns = ~ str_split(., "_", simplify = T)[, 1])) %>%
-  group_by(across(everything())) %>%
-  summarise(n = n()) %>%
-  ungroup() %>%
-  mutate(f  = n / sum(n)) %>%
-  arrange(n) %>%
-  rowid_to_column() %>%
-  pivot_longer(cols = !starts_with(c("n", "rowid", "f")), names_to = "x") %>%
-  filter(!is.na(value)) %>% 
-  mutate(max_y = max(rowid),
-         max_x = max(as.numeric(x))) %>%
-  { max_y <<- unlist(distinct(select(., max_y))); .} %>%
-  ggplot(aes(x = as.numeric(x), y = rowid, group = rowid, label = value)) +
-  geom_point(size = 3) +
-  geom_line(size = 1) +
-  scale_x_continuous(expand = c(0.5, 0)) +
-  annotate("rect", xmin=-0.7, xmax=-0.3, ymin=0, ymax=max_y+1, alpha=0.8, fill="lightblue", col = "darkblue") +
-  geom_point(aes(x = -0.5, col = f), size = 5) +
-  scale_color_viridis_c(name = "Frequency") + 
-  geom_text(hjust=.5, vjust=-1) +
-  theme(
-    panel.background = element_blank(),
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    axis.title = element_blank(),
-    legend.background = element_rect(fill="lightblue",
-                                     size=0.5, 
-                                     linetype="solid", 
-                                     colour ="darkblue"),
-    legend.position = "left"
-  ) -> p 
-ggsave(plot = p, filename = "${params.tag}_freq_of_orders.png", device = "png", width = 10)
-"""
-}
-
-
-workflow collectRuns {
-  main:
-  Channel.fromPath( params.dir + "/**_set.csv.gz") | \
-    zcatFilesAppendFileName | \
-    collect | \
-    appendFiles | \
-    collectedBarPlot
+  plot_order.R ${csv} ${params.tag}
+  """
 }
 
 process zcatFilesAppendFileName {
@@ -486,6 +200,7 @@ process appendFiles {
 }
 
 process collectedBarPlot {
+  container 'rocker/tidyverse:latest'
   publishDir "${params.dir}/", mode: "copy"
   input:
   path csv
@@ -493,64 +208,6 @@ process collectedBarPlot {
   path "*.png"
 
   """
-  #!/usr/bin/Rscript
-  library(tidyverse)
-
-  read_delim("${csv}", delim = ",")  %>%
-  distinct(across(everything())) %>%
-  mutate(across(!starts_with(c("tag")), .fns = function(x) str_split(x, "_", simplify = T)[,1])) %>%
-  group_by(across(everything())) %>%
-  summarise(n = n()) %>%
-  unite(remove = F, !starts_with(c("tag", "n")), col = "combination", sep = "_") %>%
-  mutate(combination = str_remove_all(combination, "NA_|_NA")) %>% 
-  pivot_longer(values_to = "set", !starts_with(c("tag", "n", "combination"))) %>% 
-  select(-name) %>%
-  filter(!is.na(set)) %>% 
-  group_by(set, tag) %>%
-  mutate(total = sum(n), r = n / total) %>% 
-  mutate(combination = if_else(set == combination, ".", combination )) %>%
-  #
- ggplot(aes(
-    x = tag, 
-    y = r, 
-    fill = combination, 
-    group = combination)
-  ) +
-  geom_bar(width=1, stat = "identity", colour = "black", linetype = "dashed", alpha = .8, size = 0.1) +
-  geom_label(aes(y = r, 
-                 label = if_else(r > 0.1, 
-                                 if_else(str_ends(combination, set), 
-                                         str_remove_all(combination, paste0("_", set)),
-                                         str_remove_all(combination, paste0(set, "_")),
-                                 ) %>% 
-                                   str_replace_all("_", "\n"), 
-                                 as.character(NA)
-                 ), 
-                 group = combination
-  ),
-  fontface = "bold",
-  color = "black", 
-  fill = "white", 
-  lineheight = .9,
-  alpha = .5, 
-  position = position_stack(vjust = .5), angle = 0, size = 3.5) + 
-  facet_grid(set ~ ., switch = "y") +
-  scale_fill_viridis_d(option = "D") +
-  scale_x_discrete(name = NULL, position = "top") +
-  scale_y_continuous(name = NULL, labels = NULL, breaks = NULL, limits = c(0, 1)) +
-  guides(fill = guide_legend(title = "Combination", nrow = 3, byrow = T)) +
-  theme(
-    legend.position = "bottom",
-    legend.background = element_rect(colour = "navy", fill = "lightskyblue"),
-    legend.key.size = unit(2, "mm"),
-    legend.text = element_text(face = "bold"),
-    panel.background = element_blank(),
-    strip.text.y.left = element_text(angle = 90, face = "bold", size = 10),
-    axis.text.x.top = element_text(angle = 0, face = "bold", size = 8),
-    axis.ticks = element_blank(),
-    axis.line.y.left = element_blank(),
-    strip.background = element_blank(),
-  ) -> p
-  ggsave(plot = p, filename = "collected_barplot.png", device = "png", width = 10)
+  collected_bar_plot.R ${csv}
   """
 }
