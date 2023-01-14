@@ -1,16 +1,12 @@
 # cooccurrence
 
-
 ## Features
 
 * `nextflow` pipeline to calculate the pairwise cooccurrence of `GFF` files
 * Pairwise relations are determined by `bedtools closest`
     * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
-* Afterwards, the pairs (edges) are iteratively connected to complete graphs (*K_n*) of size *n* , where *n* is the number of input sets (`GFFs`)
+* Afterwards the maximal cliques are determined
    * A combinatorial table is returned with all groups
-* A use case is the analysis of the transcriptional structure
-    * For example the joint occurrence of predicted promoters, annotated genes and terminators
-* Moreover, the intersections are plotted as a Venn diagram and bar plot
 * If the `GFFs` are dense and multiple joint calls are possible, consider the usage of `bedtools` *k* parameter to increase the resolution
 
 ## How to
@@ -30,15 +26,6 @@ nextflow main.nf -entry plot
 ## Requirements
 * General
   * `nextflow >= 21.04.3.5560`
-  * `bedtools >= 2.27.1`
-  * `python >= 3.7.3`
-* Optionally for plots
-  * `R >= 4.1.2`
-  * `tidyverse >= 1.3.1`
-  * `ggVennDiagram >= 1.3.1`
-
-
-
 
 ## Notes
 
@@ -60,8 +47,6 @@ nextflow main.nf -entry plot
 
 
 <p align="center">
-<img src="example/example_run_RegulonDB/example_run_RegulonDB_barPlot.png" width="400" height="400">
-<img src="example/example_run_RegulonDB/example_run_RegulonDB_venn.png"  width="400" height="400">
-<img src="example/example_run_RegulonDB/example_run_RegulonDB_freq_of_orders.png">
+<img src="example/example_run_RegulonDB_C/example_run_RegulonDB_C_freq_of_orders.png">
 <img src="example/collected_barplot.png">
 </p>

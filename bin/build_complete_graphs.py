@@ -30,6 +30,9 @@ class DisjointSet:
 #   For each k_n
 #    if exists v not in k_n: k_n U v = n and
 #    for all u in k_n exists (u,v) then k_n+1 exists
+
+# TODO: use here Bron Kerbosch
+
 def complete_graphs(vs: list, es: set) -> set:
     def build_kn(complete_graphs: set, n: int, acc: set) -> set:
       if n == len(vs) + 1: 
