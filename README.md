@@ -1,50 +1,43 @@
-# cooccurrence
+# Cooccurrence Analysis Pipeline
+
+The **cooccurrence** pipeline is designed to calculate pairwise cooccurrence of features within GFF files, facilitating the analysis of their relationships. The pipeline leverages the `bedtools closest` function to determine pairwise relations based on specific constraints, such as one feature occurring upstream of another. Subsequently, maximal cliques are determined, and a combinatorial table is generated containing all identified groups. This workflow is particularly useful for investigating feature interactions and cooccurrences in biological data.
 
 ## Features
 
-* `nextflow` pipeline to calculate the pairwise cooccurrence of `GFF` files
-* Pairwise relations are determined by `bedtools closest`
-    * This allows to set detailed constraints for the pairs, e.g. a feature has to occur upstream of another
-* Afterwards the maximal cliques are determined
-   * A combinatorial table is returned with all groups
-* If the `GFFs` are dense and multiple joint calls are possible, consider the usage of `bedtools` *k* parameter to increase the resolution
+- Nextflow pipeline for calculating pairwise cooccurrence of features within GFF files.
+- Utilizes `bedtools closest` to establish pairwise relationships, allowing detailed constraints for feature pairs.
+- Maximal cliques are identified to group cooccurring features.
+- Option to generate a CSV file containing all complete graphs (combinations).
+- Visualization of the identified cooccurring feature groups is available.
 
-## How to
+## How to Use
 
-* Calculate all complete graphs (combinations) and return them as a `CSV`:
+To calculate all complete graphs (combinations) and return them as a CSV:
 
-```
+```bash
 nextflow main.nf
 ```
 
-* Additionally plot them
+To additionally visualize the identified cooccurring feature groups:
 
-```
+```bash
 nextflow main.nf -entry plot
 ```
 
 ## Requirements
-* General
-  * `nextflow >= 21.04.3.5560`
+
+- **General**: nextflow version 21.04.3.5560 or later.
 
 ## Notes
 
- * Files have to be in the `GFF` format and are set in the script 
- * Parameters for `bedtools closest` and maximal distances are passed in a combinatorial table (`CSV` file)
-    * Default parameters can be set within the script
-    * Only non-default lines have to be set in the config
-    * Provide at least one entry in the config
-    * Use the simplified file names (`myfile.gff -> myfile`) as identifiers for the combinatorial table
- * Symmetry is not validated, however only undirected edges can be build to *K_{2}* graphs
-    * The *k* closest function is not commutative, therefore it is necessary to calculate all permutations
-  * Note that *A,B,C* maps to the set *ABC={{(a_1,a_1)},{(a_2,b_2)},{(a_2,b_3,c_3)}}*
-      * Elements from the original set may occur multiple times 
-    * The sets (the original and non-intersected) reflect single intervals, e.g. *A={a_1, ..., a_n}* and *B={b_1, ..., b_n}*
-    * The *intersections* reflect paired joined occurrences of both sets: *intersect(A, B)= {(a_1, b_1), (b_1, a_1), (a_1, b_2)}*
-    * The cardinality of the *intersected* sets consists of the original set, e.g. *|A|* and a *product* part of the joined features (*|joined(AxB)|*)
-* The script does not handle overlaps in detail 
-* Example data was taken from [*RegulonDB*](https://regulondb.ccg.unam.mx/menu/using_regulondb/terms_and_conditions/citing_conditions/index.jsp#) v 10.5 (Alberto Santos-Zavaleta *et al.* 2019)
-
+- Input files are expected to be in the GFF format and are specified within the script.
+- Parameters for `bedtools closest` and maximal distances are provided through a combinatorial table in CSV format.
+  - Default parameters can be set within the script.
+  - Non-default lines should be configured in the provided configuration.
+  - Use simplified file names (e.g., `myfile.gff` -> `myfile`) as identifiers for the combinatorial table.
+- The script builds undirected edges for K2 graphs; however, symmetry is not validated.
+- Overlapping intervals are not handled in detail.
+- Example data is from RegulonDB v 10.5 (Alberto Santos-Zavaleta et al. 2019).
 
 <p align="center">
 <img src="example/example_run_RegulonDB_C/example_run_RegulonDB_C_freq_of_orders.png">
