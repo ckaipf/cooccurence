@@ -3,7 +3,8 @@ library(tidyverse)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-dat <- read_csv(file = args[1], col_types = "f") 
+dat <- read_csv(file = args[1]) %>%
+  mutate(tag = factor(tag))
 dat %>%
   distinct(across(everything())) %>%
   mutate(across(
@@ -35,8 +36,8 @@ dat %>%
     width = 1,
     stat = "identity",
     colour = "black",
-    linetype = "dashed",
-    alpha = .8,
+    linetype = "dotted",
+    alpha = .7,
     size = 0.1
   ) +
   geom_label(
@@ -61,7 +62,7 @@ dat %>%
     alpha = .5,
     position = position_stack(vjust = .5),
     angle = 0,
-    size = 3.5
+    size = 3
   ) +
   facet_grid(set ~ ., switch = "y") +
   scale_fill_viridis_d(option = "D") +
@@ -73,33 +74,30 @@ dat %>%
     limits = c(0, 1)
   ) +
   guides(fill = guide_legend(
-    title = "Combination",
+    title = "Combinations",
     nrow = 3,
     byrow = T
   )) +
   theme(
     legend.position = "bottom",
-    legend.background = element_rect(colour = "navy", fill = "lightskyblue"),
     legend.key.size = unit(2, "mm"),
     legend.text = element_text(face = "bold"),
-    panel.background = element_blank(),
-    strip.text.y.left = element_text(angle = 90, face = "bold", size = 10),
-    axis.text.x.top = element_text(angle = 0, face = "bold", size = 8),
+    legend.background = element_rect(fill = 'transparent'),
+    legend.box.background = element_rect(fill = 'transparent'),
+    strip.text.y.left = element_text(angle = 90, face = "bold", size = 9, color = "black"),
+    axis.text.x.top = element_text(angle = 0, face = "bold", size = 8, color = "black"),
     axis.ticks = element_blank(),
     axis.line.y.left = element_blank(),
     strip.background = element_blank(),
-  ) +
-  theme(
     panel.background = element_rect(fill = 'transparent'),
-    plot.background = element_rect(fill = 'transparent', color = NA),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    legend.background = element_rect(fill = 'transparent'),
-    legend.box.background = element_rect(fill = 'transparent')
+    plot.background = element_rect(fill = 'transparent', color = NA),
   ) -> p
 ggsave(
   plot = p,
   filename = "collected_barplot.png",
   device = "png",
-  width = 1.8 * nlevels(dat$tag)
+  width = 1.6 * nlevels(dat$tag),
+  height = 2.3 * nlevels(dat$tag)
 )

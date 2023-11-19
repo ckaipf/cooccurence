@@ -40,5 +40,5 @@ nextflow main.nf -entry plot
 - Example data is from RegulonDB v 10.5 (Alberto Santos-Zavaleta et al. 2019).
 
 <p align="center">
-<img src="example/collected_barplot.png">
+<img src="example/collected_barplot.png" width="400">
 </p>
