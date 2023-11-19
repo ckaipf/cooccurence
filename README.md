@@ -1,4 +1,4 @@
-# Cooccurrence Analysis Pipeline
+# Cooccurrence
 
 The **cooccurrence** pipeline is designed to calculate pairwise cooccurrence of features within GFF files, facilitating the analysis of their relationships. The pipeline leverages the `bedtools closest` function to determine pairwise relations based on specific constraints, such as one feature occurring upstream of another. Subsequently, maximal cliques are determined, and a combinatorial table is generated containing all identified groups. This workflow is particularly useful for investigating feature interactions and cooccurrences in biological data.
 
@@ -40,6 +40,5 @@ nextflow main.nf -entry plot
 - Example data is from RegulonDB v 10.5 (Alberto Santos-Zavaleta et al. 2019).
 
 <p align="center">
-<img src="example/example_run_RegulonDB_C/example_run_RegulonDB_C_freq_of_orders.png">
 <img src="example/collected_barplot.png">
 </p>
